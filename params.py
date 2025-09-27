@@ -27,6 +27,7 @@ STAGE1_DIR = PIPELINE_ROOT / 'stage1_outputs'
 STAGE2_DIR = PIPELINE_ROOT / 'stage2_outputs'
 STAGE3_DIR = PIPELINE_ROOT / 'stage3_outputs'
 STAGE4_DIR = PIPELINE_ROOT / 'stage4_outputs'
+STAGE_RENDERER_DIR = PIPELINE_ROOT / 'stage_renderer_outputs'
 
 # Video scanning
 VIDEO_EXTS = {'.mp4', '.MP4', '.mov', '.MOV', '.avi', '.AVI', '.mkv', '.MKV'}
@@ -40,13 +41,22 @@ def list_videos() -> List[Path]:
 # Detection and post-processing params
 THRESHOLD_Y = 175            # grayscale threshold for SimpleBlobDetector
 MIN_DIST_BETWEEN_BLOBS = 1   # min distance between blobs (px)
-OVERLAP_IOU = 0.25           # IoU threshold for merging boxes
+# Legacy: kept for reference; Stage3 now uses centroid-distance instead of IoU
+OVERLAP_IOU = 0.25           # (unused in new Stage3)
 BOX_SIZE_PX = 40             # square box size around centroid (px)
 BOX_COLOR_BGR = (0, 0, 255)  # drawing color for final render
 BOX_THICKNESS = 1
 FOURCC = 'mp4v'
 N = 100                      # None → process full video
-BATCH_SIZE = 4096             # batch size for CNN inference (multiple of 2:: 256, 512, 1024, 2048)
+BATCH_SIZE = 4096            # batch size for CNN inference
+
+# Stage3 (merge) by centroid distance and heaviest RGB sum
+MERGE_DISTANCE_PX = 10.0
+
+# Stage4 Gaussian centroid refinement
+GAUSS_PATCH_W = 10
+GAUSS_PATCH_H = 10
+GAUSS_SIGMA = 0.0            # 0: uniform; >0: Gaussian-weighted centroid
 
 # CNN classification
 MODEL_PATH = str(Path('/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/colo_real_dataset_ResNet18_best_model.pt'))

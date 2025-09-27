@@ -45,6 +45,7 @@ def run_stage1() -> Path:
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total = min(total, params.N) if params.N else total
         out_csv = out_dir / f"{vpath.stem}_detections.csv"
+        total_dets = 0
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
             writer.writerow(['frame', 'cx', 'cy', 'size'])
@@ -58,7 +59,9 @@ def run_stage1() -> Path:
                     kps = detector.detect(gray)
                     for kp in kps:
                         writer.writerow([idx, float(kp.pt[0]), float(kp.pt[1]), float(kp.size)])
+                        total_dets += 1
         cap.release()
+        print(f"Stage1: {vpath.stem} frames={total} dets={total_dets} dets_per_frame={total_dets/max(1,total):.2f}")
 
     return out_dir
 

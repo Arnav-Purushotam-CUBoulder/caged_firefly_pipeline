@@ -1,36 +1,46 @@
 """
-Stage 3: Merge detections into boxes using IoU.
+Stage 3: Merge detections by centroid distance and keep heaviest RGB sum.
 
 Reads Stage2 CSVs (frame,cx,cy,size,pred,conf), keeps positives with
-conf >= CONFIDENCE_MIN, converts centroids to fixed-size boxes and
-iteratively merges overlapping boxes per frame (IoU >= OVERLAP_IOU).
+conf >= CONFIDENCE_MIN, groups detections per frame whose centroid
+distance <= MERGE_DISTANCE_PX via union-find, then for each group keeps
+the single detection with the highest RGB-sum weight computed on the
+original frame inside a BOX_SIZE_PX square centered at the centroid.
 
 Outputs Stage3 CSVs with: frame,cx,cy,x1,y1,x2,y2,conf
-where cx,cy are the merged centroid (average) and conf is max group conf.
+where (cx,cy) is the kept centroid; (x1,y1,x2,y2) is the clamped box.
 """
 from pathlib import Path
 import csv
 from typing import Dict, List, Tuple
 
+import cv2
 import numpy as np
 
 import params
 
+def _clamp_box_center(cx: float, cy: float, box_w: int, box_h: int, W: int, H: int) -> Tuple[int,int,int,int,int,int]:
+    """Return clamped integer box corners and size (x1,y1,x2,y2,w,h) centered at (cx,cy)."""
+    w = max(1, int(round(box_w)))
+    h = max(1, int(round(box_h)))
+    x0 = int(round(cx - w/2.0))
+    y0 = int(round(cy - h/2.0))
+    x0 = max(0, min(x0, W - w))
+    y0 = max(0, min(y0, H - h))
+    return x0, y0, x0 + w, y0 + h, w, h
 
-def _box_from_centroid(cx: float, cy: float) -> np.ndarray:
-    half = params.BOX_SIZE_PX / 2.0
-    return np.array([cx - half, cy - half, cx + half, cy + half], dtype=float)
+
+def _rgb_weight(frame_bgr: np.ndarray, x1: int, y1: int, x2: int, y2: int) -> float:
+    crop = frame_bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return -1.0
+    return float(crop.astype(np.float64).sum())
 
 
-def _iou(b1: np.ndarray, b2: np.ndarray) -> float:
-    xA, yA = max(b1[0], b2[0]), max(b1[1], b2[1])
-    xB, yB = min(b1[2], b2[2]), min(b1[3], b2[3])
-    inter = max(0.0, xB - xA) * max(0.0, yB - yA)
-    if inter <= 0.0:
-        return 0.0
-    a1 = (b1[2]-b1[0])*(b1[3]-b1[1])
-    a2 = (b2[2]-b2[0])*(b2[3]-b2[1])
-    return float(inter / (a1 + a2 - inter))
+def _euclid(a: Tuple[float,float], b: Tuple[float,float]) -> float:
+    dx = a[0] - b[0]
+    dy = a[1] - b[1]
+    return float((dx*dx + dy*dy) ** 0.5)
 
 
 def _load_stage2(path: Path) -> Dict[int, List[Tuple[float, float, float]]]:
@@ -49,65 +59,100 @@ def _load_stage2(path: Path) -> Dict[int, List[Tuple[float, float, float]]]:
     return mapping
 
 
-def _merge_centroids(cents: List[Tuple[float, float, float]]):
+def _merge_frame_by_distance(frame_bgr: np.ndarray, dets: List[Tuple[float,float,float]]):
+    """Given a frame and list of (cx,cy,conf), return kept rows as
+    (cx, cy, x1, y1, x2, y2, conf) using union-find by centroid distance
+    and keeping max RGB-sum per group.
     """
-    Merge centroids by converting to fixed-size boxes and iteratively merging
-    overlapping ones (IoU >= threshold). Returns list of tuples:
-    (cx, cy, x1, y1, x2, y2, conf)
-    """
-    if not cents:
+    n = len(dets)
+    if n == 0:
         return []
-    boxes = [(_box_from_centroid(cx, cy), cx, cy, conf) for cx, cy, conf in cents]
-    changed = True
-    while changed:
-        changed = False
-        new_boxes = []
-        i = 0
-        while i < len(boxes):
-            base_b, base_cx, base_cy, base_conf = boxes[i]
-            group = [boxes[i]]
-            j = i + 1
-            while j < len(boxes):
-                if _iou(base_b, boxes[j][0]) >= params.OVERLAP_IOU:
-                    group.append(boxes.pop(j))
-                    changed = True
-                else:
-                    j += 1
-            xs = [c[1] for c in group]
-            ys = [c[2] for c in group]
-            confs = [c[3] for c in group]
-            mcx = float(sum(xs) / len(xs))
-            mcy = float(sum(ys) / len(ys))
-            mb = _box_from_centroid(mcx, mcy)
-            mconf = float(max(confs))
-            new_boxes.append((mb, mcx, mcy, mconf))
-            i += 1
-        boxes = new_boxes
-    # format output
+    H, W = frame_bgr.shape[:2]
+    # Precompute boxes and weights
+    boxes = []  # (x1,y1,x2,y2)
+    cents = []  # (cx,cy)
+    confs = []
+    for cx, cy, conf in dets:
+        x1, y1, x2, y2, w, h = _clamp_box_center(cx, cy, params.BOX_SIZE_PX, params.BOX_SIZE_PX, W, H)
+        boxes.append((x1, y1, x2, y2))
+        cents.append((cx, cy))
+        confs.append(conf)
+    # Union-find by centroid distance
+    parent = list(range(n))
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+    th = float(params.MERGE_DISTANCE_PX)
+    for i in range(n):
+        for j in range(i+1, n):
+            if _euclid(cents[i], cents[j]) <= th:
+                union(i, j)
+    groups: Dict[int, List[int]] = {}
+    for i in range(n):
+        r = find(i)
+        groups.setdefault(r, []).append(i)
     results = []
-    for b, cx, cy, conf in boxes:
-        x1, y1, x2, y2 = b.tolist()
-        results.append((cx, cy, x1, y1, x2, y2, conf))
+    # Select max-weight within each group
+    for root, idxs in groups.items():
+        max_w = -1.0
+        keep_i = idxs[0]
+        for i in idxs:
+            x1,y1,x2,y2 = boxes[i]
+            wt = _rgb_weight(frame_bgr, x1, y1, x2, y2)
+            if wt > max_w:
+                max_w = wt
+                keep_i = i
+        cx, cy = cents[keep_i]
+        x1,y1,x2,y2 = boxes[keep_i]
+        conf = confs[keep_i]
+        results.append((float(cx), float(cy), float(x1), float(y1), float(x2), float(y2), float(conf)))
     return results
 
 
 def run_stage3() -> Path:
     out_dir = params.STAGE3_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
+    videos = params.list_videos()
+    vid_map = {p.stem: p for p in videos}
     for csv_path in sorted(params.STAGE2_DIR.glob('*_classified.csv')):
         data = _load_stage2(csv_path)
         stem = csv_path.stem.replace('_classified', '')
+        vpath = vid_map.get(stem)
+        if vpath is None:
+            print(f"Warning: Stage3: no matching video for {csv_path.name}")
+            continue
+        cap = cv2.VideoCapture(str(vpath))
+        if not cap.isOpened():
+            print(f"Warning: Stage3: cannot open video {vpath}")
+            continue
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total = min(total, params.N) if params.N else total
         out_csv = out_dir / f"{stem}_merged.csv"
+        before = sum(len(v) for v in data.values())
+        after = 0
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
             writer.writerow(['frame', 'cx', 'cy', 'x1', 'y1', 'x2', 'y2', 'conf'])
-            for frame_idx in sorted(data.keys()):
-                merged = _merge_centroids(data[frame_idx])
+            for idx in range(total):
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                dets = data.get(idx, [])
+                merged = _merge_frame_by_distance(frame, dets)
+                after += len(merged)
                 for cx, cy, x1, y1, x2, y2, conf in merged:
                     writer.writerow([
-                        int(frame_idx), float(cx), float(cy),
+                        int(idx), float(cx), float(cy),
                         float(x1), float(y1), float(x2), float(y2), float(conf)
                     ])
+        cap.release()
+        print(f"Stage3: {stem} before={before} after={after} merged={before-after} dist_px={params.MERGE_DISTANCE_PX}")
 
     return out_dir
 

@@ -109,6 +109,8 @@ def run_stage2() -> Path:
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total = min(total, params.N) if params.N else total
         out_csv = out_dir / f"{stem}_classified.csv"
+        total_cands = sum(len(v) for v in dets.values())
+        pos = neg = pos_conf = 0
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
             writer.writerow(['frame', 'cx', 'cy', 'size', 'pred', 'conf'])
@@ -146,7 +148,15 @@ def run_stage2() -> Path:
                                 i = start + off
                                 cx, cy, size = det_list[i]
                                 writer.writerow([idx, cx, cy, size, int(pred), float(conf)])
+                                if int(pred) == 1:
+                                    pos += 1
+                                    if float(conf) >= float(params.CONFIDENCE_MIN):
+                                        pos_conf += 1
+                                else:
+                                    neg += 1
         cap.release()
+        rate = (pos_conf / max(1, total_cands)) * 100.0
+        print(f"Stage2: {stem} candidates={total_cands} pred1={pos} pred0={neg} pred1_conf>={params.CONFIDENCE_MIN} -> {pos_conf} ({rate:.1f}%)")
 
     return out_dir
 

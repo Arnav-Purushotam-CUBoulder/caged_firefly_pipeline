@@ -1,7 +1,7 @@
 """
-Pipeline orchestrator: runs Stage0 → Stage1 → Stage2 → Stage3 → Stage4.
+Pipeline orchestrator: runs Stage0 → Stage1 → Stage2 → Stage3 → Stage4 (Gaussian) → Renderer.
 
-Usage: python "models and other data/code/orchestrator.py"
+Usage: python code/orchestrator.py
 All configuration is in params.py.
 """
 from pathlib import Path
@@ -12,7 +12,8 @@ from stage0_cleanup import run_stage0
 from stage1_sbd import run_stage1
 from stage2_cnn import run_stage2
 from stage3_merge import run_stage3
-from stage4_render import run_stage4
+from stage4_gaussian_centroid import run_stage4
+from stage_renderer import run_stage_renderer
 
 
 def main():
@@ -32,9 +33,13 @@ def main():
     s3 = run_stage3()
     print(f"Stage3 outputs → {s3}")
 
-    print("── Running Stage 4: Render + Final CSV …")
+    print("── Running Stage 4: Gaussian centroid refinement …")
     s4 = run_stage4()
     print(f"Stage4 outputs → {s4}")
+
+    print("── Running Renderer: Annotated videos …")
+    sr = run_stage_renderer()
+    print(f"Renderer outputs → {sr}")
 
     dt = perf_counter() - t0
     print(f"Done in {dt:.1f}s")

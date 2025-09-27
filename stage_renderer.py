@@ -9,11 +9,57 @@ used into the same folder for reference.
 """
 from pathlib import Path
 import csv
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import cv2
 
 import params
+
+
+def _ensure_fps(cap: cv2.VideoCapture) -> float:
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps != fps or fps <= 0:  # handle 0 or NaN
+        fps = 30.0
+    return float(fps)
+
+
+def _ensure_size(cap: cv2.VideoCapture) -> Tuple[int, int]:
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if w <= 0 or h <= 0:
+        ok, frame = cap.read()
+        if ok:
+            h, w = frame.shape[:2]
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    return int(w), int(h)
+
+
+def _make_writer(out_dir: Path, stem: str, w: int, h: int, fps: float) -> Tuple[cv2.VideoWriter, Path, str]:
+    """Create a VideoWriter with codec fallbacks. Returns (writer, path, fourcc)."""
+    candidates = [
+        ('mp4v', '.mp4'),
+        ('avc1', '.mp4'),
+        ('H264', '.mp4'),
+        ('XVID', '.avi'),
+        ('MJPG', '.avi'),
+    ]
+    last_exc: Optional[Exception] = None
+    for fourcc, ext in candidates:
+        out_video = out_dir / f"{stem}_annotated{ext}"
+        try:
+            writer = cv2.VideoWriter(
+                str(out_video),
+                cv2.VideoWriter_fourcc(*fourcc),
+                float(fps),
+                (int(w), int(h)),
+                True,
+            )
+            if writer.isOpened():
+                return writer, out_video, fourcc
+            writer.release()
+        except Exception as e:  # pragma: no cover (safety)
+            last_exc = e
+    raise RuntimeError(f"Failed to create VideoWriter for {stem}; last error: {last_exc}")
 
 
 def _load_rects_from_csv(path: Path) -> Dict[int, List[Tuple[float,float,float,float,float]]]:
@@ -67,18 +113,10 @@ def run_stage_renderer() -> Path:
         if not cap.isOpened():
             print(f"Warning: cannot open video {vpath}")
             continue
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = _ensure_fps(cap)
+        w, h = _ensure_size(cap)
 
-        out_video = out_dir / f"{stem}_annotated.mp4"
-        writer = cv2.VideoWriter(
-            str(out_video),
-            cv2.VideoWriter_fourcc(*params.FOURCC),
-            fps,
-            (w, h),
-            True,
-        )
+        writer, out_video, used_fourcc = _make_writer(out_dir, stem, w, h, fps)
 
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total = min(total, params.N) if params.N else total
@@ -101,7 +139,7 @@ def run_stage_renderer() -> Path:
         # Copy CSV used alongside annotated video
         out_csv = out_dir / f"{csv_path.name}"
         out_csv.write_bytes(csv_path.read_bytes())
-        print(f"Renderer: {stem} frames={total} boxes_drawn={drawn} → {out_video}")
+        print(f"Renderer: {stem} frames={total} boxes_drawn={drawn} codec={used_fourcc} → {out_video}")
 
     return out_dir
 

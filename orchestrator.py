@@ -6,6 +6,8 @@ All configuration is in params.py.
 """
 from pathlib import Path
 from time import perf_counter
+import os
+import cv2
 
 import params
 from stage0_cleanup import run_stage0
@@ -17,6 +19,12 @@ from stage_renderer import run_stage_renderer
 
 
 def main():
+    # Tame OpenCV FFmpeg read warnings and increase read attempts for multi-stream MP4s
+    os.environ.setdefault('OPENCV_FFMPEG_READ_ATTEMPTS', '999999')
+    try:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    except Exception:
+        pass
     t0 = perf_counter()
     print("── Running Stage 0: Cleanup …")
     s0 = run_stage0()

@@ -46,6 +46,7 @@ BOX_COLOR_BGR = (0, 0, 255)  # drawing color for final render
 BOX_THICKNESS = 1
 FOURCC = 'mp4v'
 N = 100                      # None → process full video
+BATCH_SIZE = 4096             # batch size for CNN inference (multiple of 2:: 256, 512, 1024, 2048)
 
 # CNN classification
 MODEL_PATH = str(Path('/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/colo_real_dataset_ResNet18_best_model.pt'))

@@ -14,12 +14,11 @@ from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
-from PIL import Image
 from tqdm import tqdm
 
 import torch
 import torch.nn as nn
-from torchvision import transforms, models
+from torchvision import models
 
 import params
 
@@ -94,10 +93,7 @@ def run_stage2() -> Path:
     model.load_state_dict(state_dict)
     model.eval()
 
-    preprocess = transforms.Compose([
-        transforms.Resize((params.BOX_SIZE_PX, params.BOX_SIZE_PX)),
-        transforms.ToTensor(),
-    ])
+    # All crops are created at BOX_SIZE_PX already; no resizing/ToTensor needed.
 
     for csv_path in sorted(stage1_dir.glob('*_detections.csv')):
         stem = csv_path.stem.replace('_detections', '')
@@ -125,14 +121,31 @@ def run_stage2() -> Path:
                     if idx not in dets:
                         continue
                     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    for cx, cy, size in dets[idx]:
-                        crop_rgb = _extract_crop(frame_rgb, cx, cy, params.BOX_SIZE_PX)
-                        t = preprocess(Image.fromarray(crop_rgb)).unsqueeze(0).to(device)
-                        with torch.no_grad():
-                            probs = model(t).softmax(dim=1)
-                        conf = float(probs[0, 1].item())
-                        pred = int(probs.argmax(1).item())
-                        writer.writerow([idx, cx, cy, size, pred, conf])
+                    # Build crops for this frame
+                    det_list = dets[idx]
+                    crops = [
+                        _extract_crop(frame_rgb, cx, cy, params.BOX_SIZE_PX)
+                        for (cx, cy, size) in det_list
+                    ]
+                    if not crops:
+                        continue
+                    # Stack into a single tensor batch (N, 3, H, W) in [0,1]
+                    arr = np.stack(crops, axis=0)  # (N, H, W, 3), uint8
+                    batch = torch.from_numpy(arr).permute(0, 3, 1, 2).float().div(255.0)
+                    # Process in sub-batches if needed
+                    bs = int(params.BATCH_SIZE) if params.BATCH_SIZE else len(det_list)
+                    with torch.no_grad():
+                        for start in range(0, batch.size(0), bs):
+                            end = min(start + bs, batch.size(0))
+                            b = batch[start:end].to(device)
+                            logits = model(b)
+                            probs = torch.softmax(logits, dim=1)
+                            confs = probs[:, 1].detach().cpu().tolist()
+                            preds = probs.argmax(dim=1).detach().cpu().tolist()
+                            for off, (pred, conf) in enumerate(zip(preds, confs)):
+                                i = start + off
+                                cx, cy, size = det_list[i]
+                                writer.writerow([idx, cx, cy, size, int(pred), float(conf)])
         cap.release()
 
     return out_dir

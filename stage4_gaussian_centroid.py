@@ -83,9 +83,10 @@ def run_stage4() -> Path:
     videos = params.list_videos()
     vid_map = {p.stem: p for p in videos}
 
-    pw = int(params.GAUSS_PATCH_W)
-    ph = int(params.GAUSS_PATCH_H)
-    sigma = float(params.GAUSS_SIGMA)
+    # Use unified BOX_SIZE_PX for both dimensions
+    pw = int(getattr(params, 'BOX_SIZE_PX', 40))
+    ph = int(getattr(params, 'BOX_SIZE_PX', 40))
+    sigma = float(getattr(params, 'GAUSS_SIGMA', 0.0))
 
     for csv_path in sorted(params.STAGE3_DIR.glob('*_merged.csv')):
         stem = csv_path.stem.replace('_merged', '')
@@ -147,4 +148,3 @@ def run_stage4() -> Path:
 
 
 __all__ = ['run_stage4']
-

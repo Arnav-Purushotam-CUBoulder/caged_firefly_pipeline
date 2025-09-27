@@ -50,12 +50,30 @@ FOURCC = 'mp4v'
 N = 2000                      # None → process full video
 BATCH_SIZE = 32768            # batch size for CNN inference
 
+# Stage1 variant: 'sbd' (OpenCV SimpleBlobDetector) or 'cucim' (GPU blob_log)
+STAGE1_VARIANT = 'cucim'
+
+# cuCIM Stage1 tuning (used when STAGE1_VARIANT='cucim')
+# Detector: 'log' or 'dog' (DoG is typically faster)
+CUCIM_DETECTOR = 'log'
+# Sigma search space
+CUCIM_MIN_SIGMA = 1.0
+CUCIM_MAX_SIGMA = 4.0
+CUCIM_NUM_SIGMA = 8
+CUCIM_LOG_SCALE = False
+CUCIM_OVERLAP = 0.5
+# Threshold on LoG/DoG response (relative scale)
+CUCIM_THRESHOLD_RESP = 0.05
+# Optional downscale factor before detection (1=no downscale, 2=half res)
+CUCIM_DOWNSCALE = 1
+# Number of frames to upload to GPU at once (micro-batching)
+CUCIM_BATCH_FRAMES = 50
+
 # Stage3 (merge) by centroid distance and heaviest RGB sum
-MERGE_DISTANCE_PX = 10.0
+MERGE_DISTANCE_PX = 30.0
 
 # Stage4 Gaussian centroid refinement
-GAUSS_PATCH_W = 10
-GAUSS_PATCH_H = 10
+# Patch size now derived from BOX_SIZE_PX for both width/height
 GAUSS_SIGMA = 0.0            # 0: uniform; >0: Gaussian-weighted centroid
 
 # CNN classification

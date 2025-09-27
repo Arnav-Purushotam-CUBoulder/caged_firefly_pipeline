@@ -11,7 +11,16 @@ import cv2
 
 import params
 from stage0_cleanup import run_stage0
-from stage1_sbd import run_stage1
+def _select_stage1_runner():
+    try:
+        variant = getattr(params, 'STAGE1_VARIANT', 'sbd').lower()
+    except Exception:
+        variant = 'sbd'
+    if variant == 'cucim':
+        from stage1_cucim import run_stage1 as _run
+    else:
+        from stage1_sbd import run_stage1 as _run
+    return _run
 from stage2_cnn import run_stage2
 from stage3_merge import run_stage3
 from stage4_gaussian_centroid import run_stage4
@@ -29,7 +38,8 @@ def main():
     print("── Running Stage 0: Cleanup …")
     s0 = run_stage0()
     print(f"Stage0 outputs → {s0}")
-    print("── Running Stage 1: SBD detections …")
+    print("── Running Stage 1: detections …")
+    run_stage1 = _select_stage1_runner()
     s1 = run_stage1()
     print(f"Stage1 outputs → {s1}")
 

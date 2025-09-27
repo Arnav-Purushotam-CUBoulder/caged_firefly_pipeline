@@ -36,12 +36,13 @@ def _ensure_size(cap: cv2.VideoCapture) -> Tuple[int, int]:
 
 def _make_writer(out_dir: Path, stem: str, w: int, h: int, fps: float) -> Tuple[cv2.VideoWriter, Path, str]:
     """Create a VideoWriter with codec fallbacks. Returns (writer, path, fourcc)."""
+    # Prefer MJPG/XVID AVI first for broad player compatibility (avoids GStreamer "internal data stream error").
     candidates = [
+        ('MJPG', '.avi'),
+        ('XVID', '.avi'),
         ('mp4v', '.mp4'),
         ('avc1', '.mp4'),
         ('H264', '.mp4'),
-        ('XVID', '.avi'),
-        ('MJPG', '.avi'),
     ]
     last_exc: Optional[Exception] = None
     for fourcc, ext in candidates:

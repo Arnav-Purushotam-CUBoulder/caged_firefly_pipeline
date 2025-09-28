@@ -1,14 +1,15 @@
 """
 Stage 3: Merge detections by centroid distance and keep heaviest RGB sum.
 
-Reads Stage2 CSVs (frame,cx,cy,size,pred,conf), keeps positives with
+Reads Stage2 CSVs (frame,cx,cy,size,pred,conf,firefly_logit,background_logit), keeps positives with
 conf >= CONFIDENCE_MIN, groups detections per frame whose centroid
 distance <= MERGE_DISTANCE_PX via union-find, then for each group keeps
 the single detection with the highest RGB-sum weight computed on the
 original frame inside a BOX_SIZE_PX square centered at the centroid.
 
-Outputs Stage3 CSVs with: frame,cx,cy,x1,y1,x2,y2,conf
-where (cx,cy) is the kept centroid; (x1,y1,x2,y2) is the clamped box.
+Outputs Stage3 CSVs with: frame,cx,cy,x1,y1,x2,y2,conf,firefly_logit,background_logit
+where (cx,cy) is the kept centroid; (x1,y1,x2,y2) is the clamped box; logits are
+propagated from the corresponding Stage2 detection that wins the merge.
 """
 from pathlib import Path
 import csv
@@ -43,11 +44,15 @@ def _euclid(a: Tuple[float,float], b: Tuple[float,float]) -> float:
     return float((dx*dx + dy*dy) ** 0.5)
 
 
-def _load_stage2(path: Path) -> Dict[int, List[Tuple[float, float, float]]]:
-    """Return mapping: frame -> list of (cx, cy, conf) for positive detections."""
-    mapping: Dict[int, List[Tuple[float, float, float]]] = {}
+def _load_stage2(path: Path) -> Dict[int, List[Tuple[float, float, float, float, float]]]:
+    """Return mapping: frame -> list of (cx, cy, conf, firefly_logit, background_logit)
+    for positive detections meeting the confidence threshold.
+    """
+    mapping: Dict[int, List[Tuple[float, float, float, float, float]]] = {}
     with path.open('r', newline='') as f:
         reader = csv.DictReader(f)
+        cols = reader.fieldnames or []
+        has_logits = ('firefly_logit' in cols and 'background_logit' in cols)
         for row in reader:
             pred = int(row['pred'])
             conf = float(row['conf'])
@@ -55,13 +60,18 @@ def _load_stage2(path: Path) -> Dict[int, List[Tuple[float, float, float]]]:
                 continue
             fi = int(row['frame'])
             cx = float(row['cx']); cy = float(row['cy'])
-            mapping.setdefault(fi, []).append((cx, cy, conf))
+            if has_logits:
+                lf = float(row.get('firefly_logit', 'nan'))
+                lb = float(row.get('background_logit', 'nan'))
+            else:
+                lf = float('nan'); lb = float('nan')
+            mapping.setdefault(fi, []).append((cx, cy, conf, lf, lb))
     return mapping
 
 
-def _merge_frame_by_distance(frame_bgr: np.ndarray, dets: List[Tuple[float,float,float]]):
+def _merge_frame_by_distance(frame_bgr: np.ndarray, dets: List[Tuple[float,float,float,float,float]]):
     """Given a frame and list of (cx,cy,conf), return kept rows as
-    (cx, cy, x1, y1, x2, y2, conf) using union-find by centroid distance
+    (cx, cy, x1, y1, x2, y2, conf, firefly_logit, background_logit) using union-find by centroid distance
     and keeping max RGB-sum per group.
     """
     n = len(dets)
@@ -72,11 +82,15 @@ def _merge_frame_by_distance(frame_bgr: np.ndarray, dets: List[Tuple[float,float
     boxes = []  # (x1,y1,x2,y2)
     cents = []  # (cx,cy)
     confs = []
-    for cx, cy, conf in dets:
+    lfs = []
+    lbs = []
+    for cx, cy, conf, lf, lb in dets:
         x1, y1, x2, y2, w, h = _clamp_box_center(cx, cy, params.BOX_SIZE_PX, params.BOX_SIZE_PX, W, H)
         boxes.append((x1, y1, x2, y2))
         cents.append((cx, cy))
         confs.append(conf)
+        lfs.append(lf)
+        lbs.append(lb)
     # Union-find by centroid distance
     parent = list(range(n))
     def find(i):
@@ -111,7 +125,9 @@ def _merge_frame_by_distance(frame_bgr: np.ndarray, dets: List[Tuple[float,float
         cx, cy = cents[keep_i]
         x1,y1,x2,y2 = boxes[keep_i]
         conf = confs[keep_i]
-        results.append((float(cx), float(cy), float(x1), float(y1), float(x2), float(y2), float(conf)))
+        lf = lfs[keep_i]
+        lb = lbs[keep_i]
+        results.append((float(cx), float(cy), float(x1), float(y1), float(x2), float(y2), float(conf), float(lf), float(lb)))
     return results
 
 
@@ -138,7 +154,7 @@ def run_stage3() -> Path:
         after = 0
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
-            writer.writerow(['frame', 'cx', 'cy', 'x1', 'y1', 'x2', 'y2', 'conf'])
+            writer.writerow(['frame', 'cx', 'cy', 'x1', 'y1', 'x2', 'y2', 'conf', 'firefly_logit', 'background_logit'])
             for idx in range(total):
                 ok, frame = cap.read()
                 if not ok:
@@ -146,10 +162,10 @@ def run_stage3() -> Path:
                 dets = data.get(idx, [])
                 merged = _merge_frame_by_distance(frame, dets)
                 after += len(merged)
-                for cx, cy, x1, y1, x2, y2, conf in merged:
+                for cx, cy, x1, y1, x2, y2, conf, lf, lb in merged:
                     writer.writerow([
                         int(idx), float(cx), float(cy),
-                        float(x1), float(y1), float(x2), float(y2), float(conf)
+                        float(x1), float(y1), float(x2), float(y2), float(conf), float(lf), float(lb)
                     ])
         cap.release()
         print(f"Stage3: {stem} before={before} after={after} merged={before-after} dist_px={params.MERGE_DISTANCE_PX}")

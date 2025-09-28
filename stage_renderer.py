@@ -72,12 +72,24 @@ def _load_rects_from_csv(path: Path) -> Dict[int, List[Tuple[float,float,float,f
         reader = csv.DictReader(f)
         cols = reader.fieldnames or []
         use_stage4 = all(c in cols for c in ('x','y','w','h'))
+        # New minimal Stage4 schema: x,y,t,firefly_logit,background_logit (no w/h)
+        use_stage4_min = (('x' in cols) and ('y' in cols) and ('t' in cols) and not use_stage4)
         use_stage3 = all(c in cols for c in ('x1','y1','x2','y2'))
         for row in reader:
-            fi = int(row['frame'])
-            conf = float(row.get('conf', 'nan'))
+            if use_stage4_min:
+                fi = int(row['t'])
+            else:
+                fi = int(row['frame'])
+            conf = float(row.get('conf', row.get('firefly_logit', 'nan')))
             if use_stage4:
                 w = int(float(row['w'])); h = int(float(row['h']))
+                cx = float(row['x']); cy = float(row['y'])
+                x1 = cx - w/2.0; y1 = cy - h/2.0
+                x2 = x1 + w;     y2 = y1 + h
+            elif use_stage4_min:
+                # Use configured BOX_SIZE_PX to draw a square around the center
+                w = int(getattr(params, 'BOX_SIZE_PX', 40))
+                h = int(getattr(params, 'BOX_SIZE_PX', 40))
                 cx = float(row['x']); cy = float(row['y'])
                 x1 = cx - w/2.0; y1 = cy - h/2.0
                 x2 = x1 + w;     y2 = y1 + h

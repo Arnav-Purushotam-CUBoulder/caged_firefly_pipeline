@@ -1,13 +1,13 @@
 """
 Stage 4: Gaussian intensity centroid refinement with crops.
 
-Reads Stage3 merged CSVs (frame,cx,cy,x1,y1,x2,y2,conf), refines the
+Reads Stage3 merged CSVs (frame,cx,cy,x1,y1,x2,y2,conf,firefly_logit,background_logit), refines the
 centroid within a small patch using an optional Gaussian-weighted
 intensity moment, and writes per-video CSVs with center semantics and
 fixed patch size, plus saves crops for visual inspection.
 
 Outputs (per video in STAGE4_DIR):
-  - <stem>_gauss.csv  with columns: frame,x,y,w,h,conf,xy_semantics='center'
+  - <stem>_gauss.csv  with columns: x,y,t,firefly_logit,background_logit
   - crops/ directory containing small crops with center marked
 """
 from pathlib import Path
@@ -63,16 +63,24 @@ def _intensity_centroid(img_gray: np.ndarray, gaussian_sigma: float = 0.0):
 
 
 def _load_stage3(path: Path) -> Dict[int, List[Tuple[float,float,float,float,float]]]:
-    """Return mapping frame -> list of (cx,cy,x1,y1,x2,y2,conf), but we keep
-    only (cx,cy,conf) and compute refined center later."""
+    """Return mapping frame -> list of (cx,cy,conf,firefly_logit,background_logit).
+    Stage4 recomputes the refined center and uses logits from Stage3.
+    """
     mapping: Dict[int, List[Tuple[float,float,float,float,float]]] = {}
     with path.open('r', newline='') as f:
         reader = csv.DictReader(f)
+        cols = reader.fieldnames or []
+        has_logits = ('firefly_logit' in cols and 'background_logit' in cols)
         for row in reader:
             fi = int(row['frame'])
             cx = float(row['cx']); cy = float(row['cy'])
             conf = float(row.get('conf', 'nan'))
-            mapping.setdefault(fi, []).append((cx, cy, conf, 0.0, 0.0))
+            if has_logits:
+                lf = float(row.get('firefly_logit', 'nan'))
+                lb = float(row.get('background_logit', 'nan'))
+            else:
+                lf = float('nan'); lb = float('nan')
+            mapping.setdefault(fi, []).append((cx, cy, conf, lf, lb))
     return mapping
 
 
@@ -111,7 +119,8 @@ def run_stage4() -> Path:
 
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
-            writer.writerow(['frame', 'x', 'y', 'w', 'h', 'conf', 'xy_semantics'])
+            # Final CSV schema: x,y,t,firefly_logit,background_logit
+            writer.writerow(['x', 'y', 't', 'firefly_logit', 'background_logit'])
             for idx in range(total):
                 ok, frame = cap.read()
                 if not ok:
@@ -120,14 +129,15 @@ def run_stage4() -> Path:
                 if not dets:
                     continue
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                for cx, cy, conf, _, _ in dets:
+                for cx, cy, conf, lf, lb in dets:
                     crop, x0, y0 = _center_crop_clamped(gray, cx, cy, pw, ph)
                     if crop.size == 0:
                         continue
                     ccx, ccy = _intensity_centroid(crop, sigma)
                     new_cx = x0 + ccx
                     new_cy = y0 + ccy
-                    writer.writerow([int(idx), float(new_cx), float(new_cy), int(pw), int(ph), float(conf), 'center'])
+                    # Write final CSV row
+                    writer.writerow([float(new_cx), float(new_cy), int(idx), float(lf), float(lb)])
                     processed += 1
                     # shift magnitude
                     dx = float(new_cx - cx)

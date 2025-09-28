@@ -47,7 +47,7 @@ BOX_SIZE_PX = 40             # square box size around centroid (px)
 BOX_COLOR_BGR = (0, 0, 255)  # drawing color for final render
 BOX_THICKNESS = 1
 FOURCC = 'mp4v'
-N = 2000                      # None → process full video
+N = None                      # None → process full video
 BATCH_SIZE = 32768            # batch size for CNN inference
 
 # Stage1 variant: 'sbd' (OpenCV SimpleBlobDetector) or 'cucim' (GPU blob_log)
@@ -67,7 +67,7 @@ CUCIM_THRESHOLD_RESP = 0.05
 # Optional downscale factor before detection (1=no downscale, 2=half res)
 CUCIM_DOWNSCALE = 1
 # Number of frames to upload to GPU at once (micro-batching)
-CUCIM_BATCH_FRAMES = 50
+CUCIM_BATCH_FRAMES = 500
 
 # Stage3 (merge) by centroid distance and heaviest RGB sum
 MERGE_DISTANCE_PX = 30.0

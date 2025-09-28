@@ -5,8 +5,9 @@ Reads Stage1 CSVs (frame,cx,cy,size) per video, iterates video frames, extracts
 BOX_SIZE_PX x BOX_SIZE_PX RGB crops centered at each centroid (with
 zero padding for out-of-bounds), and runs a ResNet18 classifier.
 
-Outputs Stage2 CSVs with: frame,cx,cy,size,pred,conf
-where pred in {0,1} and conf is probability for class 1.
+Outputs Stage2 CSVs with: frame,cx,cy,size,pred,conf,firefly_logit,background_logit
+where pred in {0,1}, conf is probability for class 1, and the last two
+are raw logits from the model's output (class 1 then class 0).
 """
 from pathlib import Path
 import csv
@@ -113,7 +114,7 @@ def run_stage2() -> Path:
         pos = neg = pos_conf = 0
         with out_csv.open('w', newline='') as fcsv:
             writer = csv.writer(fcsv)
-            writer.writerow(['frame', 'cx', 'cy', 'size', 'pred', 'conf'])
+            writer.writerow(['frame', 'cx', 'cy', 'size', 'pred', 'conf', 'firefly_logit', 'background_logit'])
             with tqdm(total=total, desc=f'Stage2 CNN: {vpath.name}', unit='frame', ncols=80) as bar:
                 for idx in range(total):
                     ok, frame_bgr = cap.read()
@@ -144,10 +145,14 @@ def run_stage2() -> Path:
                             probs = torch.softmax(logits, dim=1)
                             confs = probs[:, 1].detach().cpu().tolist()
                             preds = probs.argmax(dim=1).detach().cpu().tolist()
+                            logits_cpu = logits.detach().cpu()
                             for off, (pred, conf) in enumerate(zip(preds, confs)):
                                 i = start + off
                                 cx, cy, size = det_list[i]
-                                writer.writerow([idx, cx, cy, size, int(pred), float(conf)])
+                                # firefly is class index 1; background is index 0
+                                lf = float(logits_cpu[off, 1].item())
+                                lb = float(logits_cpu[off, 0].item())
+                                writer.writerow([idx, cx, cy, size, int(pred), float(conf), lf, lb])
                                 if int(pred) == 1:
                                     pos += 1
                                     if float(conf) >= float(params.CONFIDENCE_MIN):

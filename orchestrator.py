@@ -26,6 +26,13 @@ from stage3_merge import run_stage3
 from stage4_gaussian_centroid import run_stage4
 from stage_renderer import run_stage_renderer
 
+# Post-pipeline test modules
+from stage5_test_validate import stage5_test_validate_against_gt
+from stage6_test_overlay_gt_vs_model import stage6_test_overlay_gt_vs_model
+from stage7_test_fn_analysis import stage7_test_fn_nearest_tp_analysis
+from stage8_test_fp_analysis import stage8_test_fp_nearest_tp_analysis
+from stage9_test_detection_summary import stage9_test_generate_detection_summary
+
 
 def main():
     # Tame OpenCV FFmpeg read warnings and increase read attempts for multi-stream MP4s
@@ -58,6 +65,119 @@ def main():
     print("── Running Renderer: Annotated videos …")
     sr = run_stage_renderer()
     print(f"Renderer outputs → {sr}")
+
+    # ─────────────────────────────────────────────
+    # Post-pipeline validation and analysis (optional)
+    # ─────────────────────────────────────────────
+    try:
+        videos = params.list_videos()
+        vid_map = {p.stem: p for p in videos}
+        stage4_csvs = sorted(params.STAGE4_DIR.glob('*_gauss.csv'))
+
+        def _find_gt_csv_for_video(stem: str) -> Path | None:
+            # Prefer per-video CSVs in GT_CSV_DIR
+            try:
+                gt_dir = getattr(params, 'GT_CSV_DIR', None)
+                if gt_dir is not None and gt_dir.exists():
+                    candidates = []
+                    # strict matches first
+                    for pat in (f"{stem}.csv", f"{stem}_gt.csv", f"{stem}-gt.csv"):
+                        p = gt_dir / pat
+                        if p.exists():
+                            candidates.append(p)
+                    if candidates:
+                        return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+                    # fallback: any CSV containing the stem uniquely
+                    loose = [p for p in gt_dir.glob('*.csv') if stem in p.stem]
+                    if len(loose) == 1:
+                        return loose[0]
+            except Exception:
+                pass
+            # Fallback to single GT_CSV_PATH if provided
+            try:
+                gt_single = getattr(params, 'GT_CSV_PATH', None)
+                if gt_single is not None:
+                    gp = Path(gt_single)
+                    return gp if gp.exists() else None
+            except Exception:
+                pass
+            return None
+        for pred_csv in stage4_csvs:
+            stem = pred_csv.stem.replace('_gauss', '')
+            vpath = vid_map.get(stem)
+            if vpath is None:
+                print(f"[post] Warning: no matching video for {pred_csv.name}")
+                continue
+
+            # Stage 5 (test) — validation
+            if getattr(params, 'RUN_STAGE5_TEST_VALIDATE', True):
+                out9_dir = (params.DIR_STAGE5_TEST_OUT / stem).resolve()
+                gt_csv_path = _find_gt_csv_for_video(stem)
+                if gt_csv_path is None:
+                    print(f"[post] Warning: no GT CSV found for video '{stem}'. Skipping test stages.")
+                    continue
+                stage5_test_validate_against_gt(
+                    orig_video_path=vpath,
+                    pred_csv_path=pred_csv,
+                    gt_csv_path=gt_csv_path,
+                    out_dir=out9_dir,
+                    dist_thresholds=list(getattr(params, 'DIST_THRESHOLDS_PX', [1.0,2.0,3.0,4.0,5.0])),
+                    crop_w=int(getattr(params, 'TEST_CROP_W', getattr(params, 'BOX_SIZE_PX', 40))),
+                    crop_h=int(getattr(params, 'TEST_CROP_H', getattr(params, 'BOX_SIZE_PX', 40))),
+                    gt_t_offset=int(getattr(params, 'GT_T_OFFSET', 0)),
+                    max_frames=getattr(params, 'N', None),
+                    only_firefly_rows=True,
+                    gt_dedupe_dist_threshold_px=float(getattr(params, 'TEST_GT_DEDUPE_DIST_PX', 2.0)),
+                )
+
+            # Stage 6 (test) — overlay
+            if getattr(params, 'RUN_STAGE6_TEST_OVERLAY', True):
+                out10_path = (params.DIR_STAGE6_TEST_OUT / f"{stem}_overlay.mp4").resolve()
+                stage6_test_overlay_gt_vs_model(
+                    orig_video_path=vpath,
+                    pred_csv_path=pred_csv,
+                    post9_dir=(params.DIR_STAGE5_TEST_OUT / stem).resolve(),
+                    out_video_path=out10_path,
+                    gt_box_w=int(getattr(params, 'TEST_CROP_W', getattr(params, 'BOX_SIZE_PX', 40))),
+                    gt_box_h=int(getattr(params, 'TEST_CROP_H', getattr(params, 'BOX_SIZE_PX', 40))),
+                    thickness=int(getattr(params, 'OVERLAY_BOX_THICKNESS', getattr(params, 'BOX_THICKNESS', 1))),
+                    max_frames=getattr(params, 'N', None),
+                    render_threshold_overlays=True,
+                )
+
+            # Stage 7 (test) — FN analysis
+            if getattr(params, 'RUN_STAGE7_TEST_FN_ANALYSIS', True):
+                stage7_test_fn_nearest_tp_analysis(
+                    stage9_video_dir=(params.DIR_STAGE5_TEST_OUT / stem).resolve(),
+                    orig_video_path=vpath,
+                    box_w=int(getattr(params, 'TEST_CROP_W', getattr(params, 'BOX_SIZE_PX', 40))),
+                    box_h=int(getattr(params, 'TEST_CROP_H', getattr(params, 'BOX_SIZE_PX', 40))),
+                    thickness=int(getattr(params, 'OVERLAY_BOX_THICKNESS', getattr(params, 'BOX_THICKNESS', 1))),
+                    verbose=True,
+                )
+
+            # Stage 8 (test) — FP analysis
+            if getattr(params, 'RUN_STAGE8_TEST_FP_ANALYSIS', True):
+                stage8_test_fp_nearest_tp_analysis(
+                    stage9_video_dir=(params.DIR_STAGE5_TEST_OUT / stem).resolve(),
+                    orig_video_path=vpath,
+                    box_w=int(getattr(params, 'TEST_CROP_W', getattr(params, 'BOX_SIZE_PX', 40))),
+                    box_h=int(getattr(params, 'TEST_CROP_H', getattr(params, 'BOX_SIZE_PX', 40))),
+                    thickness=int(getattr(params, 'OVERLAY_BOX_THICKNESS', getattr(params, 'BOX_THICKNESS', 1))),
+                    verbose=True,
+                )
+
+            # Stage 9 (test) — summary JSON
+            if getattr(params, 'RUN_STAGE9_TEST_SUMMARY', True):
+                out14_dir = (params.DIR_STAGE9_TEST_OUT / stem).resolve()
+                stage9_test_generate_detection_summary(
+                    stage9_video_dir=(params.DIR_STAGE5_TEST_OUT / stem).resolve(),
+                    output_dir=out14_dir,
+                    include_nearest_tp=True,
+                    verbose=True,
+                )
+    except Exception as e:
+        print(f"[post] Warning: post-pipeline tests encountered an issue: {e}")
 
     dt = perf_counter() - t0
     print(f"Done in {dt:.1f}s")

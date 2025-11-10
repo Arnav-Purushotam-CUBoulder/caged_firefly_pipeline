@@ -29,6 +29,11 @@ STAGE3_DIR = PIPELINE_ROOT / 'stage3_outputs'
 STAGE4_DIR = PIPELINE_ROOT / 'stage4_outputs'
 STAGE_RENDERER_DIR = PIPELINE_ROOT / 'stage_renderer_outputs'
 
+# Post-pipeline testing/validation output directories (continue after Stage 4)
+DIR_STAGE5_TEST_OUT = PIPELINE_ROOT / 'stage5_test_validation'
+DIR_STAGE6_TEST_OUT = PIPELINE_ROOT / 'stage6_test_overlay'
+DIR_STAGE9_TEST_OUT = PIPELINE_ROOT / 'stage9_test_summary'
+
 # Video scanning
 VIDEO_EXTS = {'.mp4', '.MP4', '.mov', '.MOV', '.avi', '.AVI', '.mkv', '.MKV'}
 
@@ -79,3 +84,52 @@ GAUSS_SIGMA = 0.0            # 0: uniform; >0: Gaussian-weighted centroid
 # CNN classification
 MODEL_PATH = str(Path("/home/guest/Desktop/arnav's files/caged_firefly_pipeline/models/colo_real_dataset_ResNet18_best_model.pt"))
 CONFIDENCE_MIN = 0.98        # accept as firefly if conf >= this
+
+# ------------------------------------------------------------------
+# Post-pipeline testing/validation configuration
+# ------------------------------------------------------------------
+# Toggles to run test stages from the orchestrator
+RUN_STAGE5_TEST_VALIDATE = True
+RUN_STAGE6_TEST_OVERLAY = True
+RUN_STAGE7_TEST_FN_ANALYSIS = True
+RUN_STAGE8_TEST_FP_ANALYSIS = True
+RUN_STAGE9_TEST_SUMMARY = True
+
+# Ground truth input and time offset
+# Preferred layout: one CSV per video under the folder literally named
+# 'ground truth csv folder', with filenames that map to the input video stem
+# (e.g., <video_stem>.csv or <video_stem>_gt.csv).
+GT_CSV_DIR = PIPELINE_ROOT / 'ground truth csv folder'
+# Optional single-CSV fallback (used only if provided and found):
+GT_CSV_PATH = None
+GT_T_OFFSET = 0  # frames to subtract from GT 't' to align with video index
+
+# Validation sweep thresholds (pixels)
+DIST_THRESHOLDS_PX = [1.0, 2.0, 3.0, 4.0, 5.0]
+
+# Cropping sizes for validation and overlays (defaults derived from BOX_SIZE_PX)
+TEST_CROP_W = int(BOX_SIZE_PX)
+TEST_CROP_H = int(BOX_SIZE_PX)
+
+# GT dedupe threshold (used by Stage 5 test validate)
+TEST_GT_DEDUPE_DIST_PX = float(MERGE_DISTANCE_PX)
+
+# Overlay rendering
+OVERLAY_BOX_THICKNESS = BOX_THICKNESS
+
+# Back-compat aliases (if referenced elsewhere in this repo)
+# Old names (if any) map to new test-stage names
+DIR_STAGE9_OUT = DIR_STAGE5_TEST_OUT
+DIR_STAGE10_OUT = DIR_STAGE6_TEST_OUT
+DIR_STAGE14_OUT = DIR_STAGE9_TEST_OUT
+RUN_STAGE9 = RUN_STAGE5_TEST_VALIDATE
+RUN_STAGE10 = RUN_STAGE6_TEST_OVERLAY
+RUN_STAGE11 = RUN_STAGE7_TEST_FN_ANALYSIS
+RUN_STAGE12 = RUN_STAGE8_TEST_FP_ANALYSIS
+RUN_STAGE14 = RUN_STAGE9_TEST_SUMMARY
+POST_STAGE9_DIR = DIR_STAGE5_TEST_OUT
+POST_STAGE10_DIR = DIR_STAGE6_TEST_OUT
+POST_STAGE14_DIR = DIR_STAGE9_TEST_OUT
+POST_CROP_W = TEST_CROP_W
+POST_CROP_H = TEST_CROP_H
+POST_GT_DEDUPE_DIST_PX = TEST_GT_DEDUPE_DIST_PX

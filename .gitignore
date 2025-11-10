@@ -1,0 +1,42 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Logs and local artifacts
+*.log
+.DS_Store
+
+# Model/checkpoint artifacts (keep local only)
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Data dumps and archives
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json
+*.jsonl
+*.zip
+*.gz
+*.bz2
+*.xz
+*.7z
+*.rar
+
+# Images / videos (avoid committing bulky assets)
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.tif
+*.gif
+*.webp
+*.mp4
+*.avi
+*.mov
+*.mkv

@@ -32,11 +32,11 @@ def _basename(p: str | Path) -> str:
 
 # ───────── global paths ─────────
 DEFAULT_IMAGE_FOLDER = (
-    '/Users/arnavps/Desktop/New DL project data to transfer to external disk/pyrallis related data/raw data from drive/pyrallis gopro data/raw frames/20240606_cam1_GS010064')
+    '/Users/arnavps/Desktop/New DL project data to transfer to external disk/caged pyrallis inference data/original frames')
 DEFAULT_CSV_FILE = (
-'/Users/arnavps/Desktop/New DL project data to transfer to external disk/pyrallis related data/raw data from drive/pyrallis gopro data/raw frames/20240606_cam1_GS010064.csv')
+'/Users/arnavps/Desktop/New DL project data to transfer to external disk/caged pyrallis inference data/original frames/GH010182_gt_annotations.csv')
 
-BOX_SIZE      = 10                    # also used as hover patch size
+BOX_SIZE      = 40                    # also used as hover patch size
 SEARCH_RADIUS = 40
 
 state: dict[str, object] = {

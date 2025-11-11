@@ -73,6 +73,8 @@ def run_stage0() -> Path:
         params.STAGE2_DIR,
         params.STAGE3_DIR,
         params.STAGE4_DIR,
+        getattr(params, 'STAGE4_1_DIR', params.PIPELINE_ROOT / 'stage4_1_outputs'),
+        getattr(params, 'STAGE4_2_DIR', params.PIPELINE_ROOT / 'stage4_2_outputs'),
         params.STAGE_RENDERER_DIR,
     ]
 

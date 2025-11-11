@@ -27,6 +27,8 @@ STAGE1_DIR = PIPELINE_ROOT / 'stage1_outputs'
 STAGE2_DIR = PIPELINE_ROOT / 'stage2_outputs'
 STAGE3_DIR = PIPELINE_ROOT / 'stage3_outputs'
 STAGE4_DIR = PIPELINE_ROOT / 'stage4_outputs'
+STAGE4_1_DIR = PIPELINE_ROOT / 'stage4_1_outputs'
+STAGE4_2_DIR = PIPELINE_ROOT / 'stage4_2_outputs'
 STAGE_RENDERER_DIR = PIPELINE_ROOT / 'stage_renderer_outputs'
 
 # Post-pipeline testing/validation output directories (continue after Stage 4)
@@ -80,6 +82,15 @@ MERGE_DISTANCE_PX = 30.0
 # Stage4 Gaussian centroid refinement
 # Patch size now derived from BOX_SIZE_PX for both width/height
 GAUSS_SIGMA = 0.0            # 0: uniform; >0: Gaussian-weighted centroid
+
+# Stage 4.1 — brightest-pixel filter on Stage4 outputs
+RUN_STAGE4_1 = True
+STAGE4_1_BRIGHT_MAX_THRESHOLD = 190  # drop candidates whose patch max luminance < this
+
+# Stage 4.2 — bright-area pixels filter
+RUN_STAGE4_2 = True
+STAGE4_2_INTENSITY_THR = 180        # pixel is "bright" if luminance >= this
+STAGE4_2_MIN_BRIGHT_PIXELS = 25      # require at least this many bright pixels
 
 # CNN classification
 MODEL_PATH = str(Path("/home/guest/Desktop/arnav's files/caged_firefly_pipeline/models/colo_real_dataset_ResNet18_best_model.pt"))

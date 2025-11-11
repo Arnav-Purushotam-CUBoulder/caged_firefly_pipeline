@@ -25,6 +25,8 @@ from stage2_cnn import run_stage2
 from stage3_merge import run_stage3
 from stage4_gaussian_centroid import run_stage4
 from stage_renderer import run_stage_renderer
+from stage4_1_brightest_filter import run_stage4_1
+from stage4_2_bright_area_filter import run_stage4_2
 
 # Post-pipeline test modules
 from stage5_test_validate import stage5_test_validate_against_gt
@@ -61,6 +63,18 @@ def main():
     print("── Running Stage 4: Gaussian centroid refinement …")
     s4 = run_stage4()
     print(f"Stage4 outputs → {s4}")
+
+    # Optional Stage 4.1: brightest-pixel filter on Stage4 outputs
+    if getattr(params, 'RUN_STAGE4_1', True):
+        print("── Running Stage 4.1: Brightest-pixel filter …")
+        s41 = run_stage4_1()
+        print(f"Stage4.1 outputs → {s41}")
+
+    # Optional Stage 4.2: bright-area pixels filter on Stage4/4.1 outputs
+    if getattr(params, 'RUN_STAGE4_2', True):
+        print("── Running Stage 4.2: Bright-area pixels filter …")
+        s42 = run_stage4_2()
+        print(f"Stage4.2 outputs → {s42}")
 
     print("── Running Renderer: Annotated videos …")
     sr = run_stage_renderer()

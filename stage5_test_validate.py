@@ -293,11 +293,143 @@ def _refine_gt_by_gaussian_centroid(
                     px = int(round(new_cx - x0)); py = int(round(new_cy - y0))
                     if 0 <= py < color_crop.shape[0] and 0 <= px < color_crop.shape[1]:
                         color_crop[py, px] = (0, 0, 255)
-                    out_name = f"gt_refined_t{fr:06d}_x{rx}_y{ry}_{w}x{h}.png"
+                    gray_crop = cv2.cvtColor(color_crop, cv2.COLOR_BGR2GRAY)
+                    max_val = int(gray_crop.max()) if gray_crop.size else 0
+                    thr_bin = int(getattr(params, 'STAGE4_1_BRIGHT_MAX_THRESHOLD', 50)) - 1
+                    _, bin_img = cv2.threshold(gray_crop, thr_bin, 255, cv2.THRESH_BINARY)
+                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
+                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
+                    out_name = f"gt_refined_t{fr:06d}_x{rx}_y{ry}_{w}x{h}_max{max_val}_area{area}.png"
                     cv2.imwrite(str(save_dir / out_name), color_crop)
         fr += 1
     cap.release()
     return refined
+
+def _filter_gt_4_1_brightest(
+    video_path: Path,
+    gt_by_t: Dict[int, List[Tuple[int,int]]],
+    *,
+    per_point_wh: Optional[Dict[int, List[Tuple[int,int]]]],
+    patch_default: int,
+    thr: float,
+    out_dir: Path,
+    max_frames: Optional[int],
+) -> Dict[int, List[Tuple[int,int]]]:
+    """Apply Stage 4.1-style brightest-pixel threshold to GT. Saves crops.
+    Returns filtered GT map.
+    """
+    from collections import defaultdict
+    out_keep = out_dir / 'gt_4_1_kept_crops'
+    out_drop = out_dir / 'gt_4_1_dropped_crops'
+    _ensure_dir(out_keep); _ensure_dir(out_drop)
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"[stage5_test] Could not open video for GT 4.1 filter: {video_path}")
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    limit = total if max_frames is None else min(total, max_frames)
+    kept: Dict[int, List[Tuple[int,int]]] = defaultdict(list)
+    fr = 0
+    while True:
+        if fr >= limit:
+            break
+        ok, frame = cap.read()
+        if not ok:
+            break
+        dets = gt_by_t.get(fr, [])
+        sizes = (per_point_wh.get(fr) if (per_point_wh is not None) else None)
+        if dets:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            H, W = frame_rgb.shape[:2]
+            for idx_pt, (x, y) in enumerate(dets):
+                if sizes is not None and idx_pt < len(sizes):
+                    wbox = max(1, int(round(sizes[idx_pt][0]))); hbox = max(1, int(round(sizes[idx_pt][1])))
+                else:
+                    wbox = hbox = int(patch_default)
+                x0 = int(round(x - wbox/2.0)); y0 = int(round(y - hbox/2.0))
+                x0 = max(0, min(x0, W - wbox)); y0 = max(0, min(y0, H - hbox))
+                x1 = x0 + wbox; y1 = y0 + hbox
+                crop_rgb = frame_rgb[y0:y1, x0:x1]
+                crop_bgr = frame[y0:y1, x0:x1]
+                if crop_rgb.size == 0:
+                    cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max0_area0.png"), crop_bgr)
+                    continue
+                lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
+                max_val = float(lumin.max()) if lumin.size else 0.0
+                gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+                thr_bin = int(thr) - 1
+                _, bin_img = cv2.threshold(gray, thr_bin, 255, cv2.THRESH_BINARY)
+                num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
+                area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
+                fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max{int(round(max_val))}_area{area}.png"
+                if max_val < thr:
+                    cv2.imwrite(str(out_drop / fname), crop_bgr)
+                else:
+                    kept[fr].append((int(x), int(y)))
+                    cv2.imwrite(str(out_keep / fname), crop_bgr)
+        fr += 1
+    cap.release()
+    return kept
+
+def _filter_gt_4_2_bright_area(
+    video_path: Path,
+    gt_by_t: Dict[int, List[Tuple[int,int]]],
+    *,
+    per_point_wh: Optional[Dict[int, List[Tuple[int,int]]]],
+    patch_default: int,
+    thr: float,
+    min_pix: int,
+    out_dir: Path,
+    max_frames: Optional[int],
+) -> Dict[int, List[Tuple[int,int]]]:
+    """Apply Stage 4.2-style bright-area pixels filter to GT. Saves crops.
+    Returns filtered GT map.
+    """
+    from collections import defaultdict
+    out_keep = out_dir / 'gt_4_2_kept_crops'
+    out_drop = out_dir / 'gt_4_2_dropped_crops'
+    _ensure_dir(out_keep); _ensure_dir(out_drop)
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"[stage5_test] Could not open video for GT 4.2 filter: {video_path}")
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    limit = total if max_frames is None else min(total, max_frames)
+    kept: Dict[int, List[Tuple[int,int]]] = defaultdict(list)
+    fr = 0
+    while True:
+        if fr >= limit:
+            break
+        ok, frame = cap.read()
+        if not ok:
+            break
+        dets = gt_by_t.get(fr, [])
+        sizes = (per_point_wh.get(fr) if (per_point_wh is not None) else None)
+        if dets:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            H, W = frame_rgb.shape[:2]
+            for idx_pt, (x, y) in enumerate(dets):
+                if sizes is not None and idx_pt < len(sizes):
+                    wbox = max(1, int(round(sizes[idx_pt][0]))); hbox = max(1, int(round(sizes[idx_pt][1])))
+                else:
+                    wbox = hbox = int(patch_default)
+                x0 = int(round(x - wbox/2.0)); y0 = int(round(y - hbox/2.0))
+                x0 = max(0, min(x0, W - wbox)); y0 = max(0, min(y0, H - hbox))
+                x1 = x0 + wbox; y1 = y0 + hbox
+                crop_rgb = frame_rgb[y0:y1, x0:x1]
+                crop_bgr = frame[y0:y1, x0:x1]
+                if crop_rgb.size == 0:
+                    cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_brightpx0_thr{int(thr)}.png"), crop_bgr)
+                    continue
+                lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
+                nbright = int((lumin >= thr).sum())
+                fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_brightpx{nbright}_thr{int(thr)}.png"
+                if nbright < int(min_pix):
+                    cv2.imwrite(str(out_drop / fname), crop_bgr)
+                else:
+                    kept[fr].append((int(x), int(y)))
+                    cv2.imwrite(str(out_keep / fname), crop_bgr)
+        fr += 1
+    cap.release()
+    return kept
 
 def _filter_gt_by_brightness_and_area(
     video_path: Path,
@@ -581,9 +713,33 @@ def stage5_test_validate_against_gt(
         max_frames=max_frames,
         save_dir=(out_dir / "gt_refined_crops"),
     )
-    gt_by_t_dedup, removed_dups = _dedupe_gt_via_distance_and_weight(
+    # Apply Stage 4.1 and 4.2 style filters to GT before validation
+    gt_41_thr = float(getattr(params, 'STAGE4_1_BRIGHT_MAX_THRESHOLD', 50))
+    gt_after_41 = _filter_gt_4_1_brightest(
         orig_video_path,
         gt_by_t_refined,
+        per_point_wh=gt_wh_by_t,
+        patch_default=pw,
+        thr=gt_41_thr,
+        out_dir=out_dir,
+        max_frames=max_frames,
+    )
+    gt_42_thr = float(getattr(params, 'STAGE4_2_INTENSITY_THR', 50))
+    gt_42_min = int(getattr(params, 'STAGE4_2_MIN_BRIGHT_PIXELS', 6))
+    gt_after_42 = _filter_gt_4_2_bright_area(
+        orig_video_path,
+        gt_after_41,
+        per_point_wh=gt_wh_by_t,
+        patch_default=pw,
+        thr=gt_42_thr,
+        min_pix=gt_42_min,
+        out_dir=out_dir,
+        max_frames=max_frames,
+    )
+    # Dedupe final GT set by distance and write normalized copy
+    gt_by_t_dedup, removed_dups = _dedupe_gt_via_distance_and_weight(
+        orig_video_path,
+        gt_after_42,
         crop_w=crop_w,
         crop_h=crop_h,
         dist_threshold_px=float(gt_dedupe_dist_threshold_px),
@@ -591,7 +747,7 @@ def stage5_test_validate_against_gt(
     )
     _write_norm_gt_from_map(norm_gt_csv, gt_by_t_dedup)
     final_kept = sum(len(v) for v in gt_by_t_dedup.values())
-    print(f"[stage5_test] Normalized + refined (Gaussian) + deduped GT saved to: {norm_gt_csv}  "
+    print(f"[stage5_test] Normalized + refined (Gaussian) + filtered(4.1+4.2) + deduped GT saved to: {norm_gt_csv}  "
           f"(removed duplicates: {removed_dups}; final: {final_kept})")
 
     preds_by_t = _read_predictions(pred_csv_path, only_firefly_rows, max_frames)

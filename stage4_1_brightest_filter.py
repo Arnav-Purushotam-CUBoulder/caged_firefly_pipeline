@@ -115,13 +115,14 @@ def run_stage4_1() -> Path:
                     lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
                     max_val = float(lumin.max()) if lumin.size else 0.0
                     # Area of bright component (same threshold family)
+                    # Use the same crop in BGR space for thresholding
+                    crop_bgr = frame[y0:y1, x0:x1]
                     gray_bgr = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
                     thr_bin = int(thr) - 1
                     _, bin_img = cv2.threshold(gray_bgr, thr_bin, 255, cv2.THRESH_BINARY)
                     num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
                     area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                    # Save BGR crops for visualization
-                    crop_bgr = frame[y0:y1, x0:x1]
+                    # Save BGR crops for visualization (already computed as crop_bgr)
                     # add softmax confidence from logits (if present)
                     try:
                         m = max(lf, lb)

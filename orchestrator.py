@@ -7,33 +7,69 @@ All configuration is in params.py.
 from pathlib import Path
 from time import perf_counter
 import os
+import sys
 import cv2
 
-import params
-from stage0_cleanup import run_stage0
+# Ensure the parent of this file (the package root) is importable
+_here = Path(__file__).resolve()
+_pkg_root = _here.parent
+if str(_pkg_root) not in sys.path:
+    sys.path.insert(0, str(_pkg_root))
+
+# Support both script and package execution
+try:
+    import params  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    from importlib import import_module
+    params = import_module('caged_firefly_pipeline.params')  # type: ignore
+try:
+    from stage0_cleanup import run_stage0
+except ModuleNotFoundError:  # pragma: no cover
+    from .stage0_cleanup import run_stage0
 def _select_stage1_runner():
     try:
         variant = getattr(params, 'STAGE1_VARIANT', 'sbd').lower()
     except Exception:
         variant = 'sbd'
     if variant == 'cucim':
-        from stage1_cucim import run_stage1 as _run
+        try:
+            from stage1_cucim import run_stage1 as _run
+        except ModuleNotFoundError:  # pragma: no cover
+            from .stage1_cucim import run_stage1 as _run
     else:
-        from stage1_sbd import run_stage1 as _run
+        try:
+            from stage1_sbd import run_stage1 as _run
+        except ModuleNotFoundError:  # pragma: no cover
+            from .stage1_sbd import run_stage1 as _run
     return _run
-from stage2_cnn import run_stage2
-from stage3_merge import run_stage3
-from stage4_gaussian_centroid import run_stage4
-from stage_renderer import run_stage_renderer
-from stage4_1_brightest_filter import run_stage4_1
-from stage4_2_bright_area_filter import run_stage4_2
+try:
+    from stage2_cnn import run_stage2
+    from stage3_merge import run_stage3
+    from stage4_gaussian_centroid import run_stage4
+    from stage_renderer import run_stage_renderer
+    from stage4_1_brightest_filter import run_stage4_1
+    from stage4_2_bright_area_filter import run_stage4_2
+except ModuleNotFoundError:  # pragma: no cover
+    from .stage2_cnn import run_stage2
+    from .stage3_merge import run_stage3
+    from .stage4_gaussian_centroid import run_stage4
+    from .stage_renderer import run_stage_renderer
+    from .stage4_1_brightest_filter import run_stage4_1
+    from .stage4_2_bright_area_filter import run_stage4_2
 
 # Post-pipeline test modules
-from stage5_test_validate import stage5_test_validate_against_gt
-from stage6_test_overlay_gt_vs_model import stage6_test_overlay_gt_vs_model
-from stage7_test_fn_analysis import stage7_test_fn_nearest_tp_analysis
-from stage8_test_fp_analysis import stage8_test_fp_nearest_tp_analysis
-from stage9_test_detection_summary import stage9_test_generate_detection_summary
+try:
+    from stage5_test_validate import stage5_test_validate_against_gt
+    from stage6_test_overlay_gt_vs_model import stage6_test_overlay_gt_vs_model
+    from stage7_test_fn_analysis import stage7_test_fn_nearest_tp_analysis
+    from stage8_test_fp_analysis import stage8_test_fp_nearest_tp_analysis
+    from stage9_test_detection_summary import stage9_test_generate_detection_summary
+except ModuleNotFoundError:  # pragma: no cover
+    from .stage5_test_validate import stage5_test_validate_against_gt
+    from .stage6_test_overlay_gt_vs_model import stage6_test_overlay_gt_vs_model
+    from .stage7_test_fn_analysis import stage7_test_fn_nearest_tp_analysis
+    from .stage8_test_fp_analysis import stage8_test_fp_nearest_tp_analysis
+    from .stage9_test_detection_summary import stage9_test_generate_detection_summary
 
 
 def main():

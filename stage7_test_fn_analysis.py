@@ -105,6 +105,46 @@ def _analyze_threshold_dir_and_render(
             if not tps:
                 rows_out.append({'t': t, 'fn_x': fx, 'fn_y': fy, 'tp_x': None, 'tp_y': None, 'dist': None, 'image_path': ''})
                 no_tp_cnt += 1
+                # Even if no TP, still render FN vs PRED overlay if any predictions exist
+                # Create overlay layers (do not draw directly on frame)
+                red_layer   = np.zeros_like(frame)
+                green_layer = np.zeros_like(frame)
+                # Draw all predictions (TP + FP) in RED
+                for (px, py) in preds:
+                    _draw_centered_box(red_layer, px, py, box_w, box_h, (0,0,255), thickness)
+                # Draw this FN in GREEN
+                _draw_centered_box(green_layer, fx, fy, box_w, box_h, (0,255,0), thickness)
+                # Compose outlines → red/green/yellow
+                composed = frame.copy()
+                red_mask   = np.any(red_layer > 0, axis=2)
+                green_mask = np.any(green_layer > 0, axis=2)
+                overlap    = red_mask & green_mask
+                only_red   = red_mask & ~overlap
+                only_green = green_mask & ~overlap
+                composed[only_red]   = (0,0,255)
+                composed[only_green] = (0,255,0)
+                composed[overlap]    = (0,255,255)
+                fnx = int(round(fx)); fny = int(round(fy))
+                # Determine nearest prediction if available
+                if preds:
+                    min_d_pred = None; min_pred = None
+                    for (px, py) in preds:
+                        d = _euclid((fx, fy), (px, py))
+                        if (min_d_pred is None) or (d < min_d_pred):
+                            min_d_pred = d; min_pred = (px, py)
+                    npx, npy = int(round(min_pred[0])), int(round(min_pred[1]))
+                    dstr_pred = f"{min_d_pred:.6f}"
+                    legend = "LEGEND_PRED=RED_FN=GREEN_OVERLAP=YELLOW"
+                    img_name_pred = (
+                        f"t{t:06d}_{legend}_FN({fnx},{fny})_nearestPRED({npx},{npy})_d{dstr_pred}.png"
+                    )
+                else:
+                    legend = "LEGEND_PRED=RED_FN=GREEN_OVERLAP=YELLOW"
+                    img_name_pred = (
+                        f"t{t:06d}_{legend}_FN({fnx},{fny})_nearestPRED(NA,NA)_dNA.png"
+                    )
+                out_path2 = out_img_dir_fn_vs_pred / img_name_pred
+                cv2.imwrite(str(out_path2), composed)
                 continue
             # nearest TP
             min_d = None; min_tp = None
@@ -119,20 +159,46 @@ def _analyze_threshold_dir_and_render(
             out_path = out_img_dir / f"t{t:06d}_fn_{int(round(fx))}_{int(round(fy))}_nearesttp_{int(round(min_tp[0]))}_{int(round(min_tp[1]))}.png"
             cv2.imwrite(str(out_path), canvas)
             rows_out.append({'t': t, 'fn_x': fx, 'fn_y': fy, 'tp_x': float(min_tp[0]), 'tp_y': float(min_tp[1]), 'dist': float(min_d), 'image_path': str(out_path)})
-            # overlay: preds (TP+FP) in RED and FN in GREEN
-            red = frame.copy()
+            # overlay: preds (TP+FP) in RED and FN in GREEN with nearest-PRED info and unique filenames
+            red_layer   = np.zeros_like(frame)
+            green_layer = np.zeros_like(frame)
+            # Draw all predictions in RED
             for (px, py) in preds:
-                _draw_centered_box(red, px, py, box_w, box_h, (0,0,255), thickness)
-            green = frame.copy()
-            _draw_centered_box(green, fx, fy, box_w, box_h, (0,255,0), thickness)
-            red_mask = np.any(red > 0, axis=2); green_mask = np.any(green > 0, axis=2)
-            overlap = red_mask & green_mask
-            fused = frame.copy()
-            fused[red_mask & ~overlap] = (0,0,255)
-            fused[green_mask & ~overlap] = (0,255,0)
-            fused[overlap] = (0,255,255)
-            out_path2 = out_img_dir_fn_vs_pred / f"t{t:06d}_fn_vs_pred.png"
-            cv2.imwrite(str(out_path2), fused)
+                _draw_centered_box(red_layer, px, py, box_w, box_h, (0,0,255), thickness)
+            # Draw this FN in GREEN
+            _draw_centered_box(green_layer, fx, fy, box_w, box_h, (0,255,0), thickness)
+            # Compose outlines → red/green/yellow
+            composed = frame.copy()
+            red_mask   = np.any(red_layer > 0, axis=2)
+            green_mask = np.any(green_layer > 0, axis=2)
+            overlap    = red_mask & green_mask
+            only_red   = red_mask & ~overlap
+            only_green = green_mask & ~overlap
+            composed[only_red]   = (0,0,255)
+            composed[only_green] = (0,255,0)
+            composed[overlap]    = (0,255,255)
+
+            fnx = int(round(fx)); fny = int(round(fy))
+            if preds:
+                min_d_pred = None; min_pred = None
+                for (px, py) in preds:
+                    d = _euclid((fx, fy), (px, py))
+                    if (min_d_pred is None) or (d < min_d_pred):
+                        min_d_pred = d; min_pred = (px, py)
+                npx, npy = int(round(min_pred[0])), int(round(min_pred[1]))
+                dstr_pred = f"{min_d_pred:.6f}"
+                legend = "LEGEND_PRED=RED_FN=GREEN_OVERLAP=YELLOW"
+                img_name_pred = (
+                    f"t{t:06d}_{legend}_FN({fnx},{fny})_nearestPRED({npx},{npy})_d{dstr_pred}.png"
+                )
+            else:
+                legend = "LEGEND_PRED=RED_FN=GREEN_OVERLAP=YELLOW"
+                img_name_pred = (
+                    f"t{t:06d}_{legend}_FN({fnx},{fny})_nearestPRED(NA,NA)_dNA.png"
+                )
+
+            out_path2 = out_img_dir_fn_vs_pred / img_name_pred
+            cv2.imwrite(str(out_path2), composed)
         _progress(frames.index(t)+1, len(frames), 'stage7-test-fn')
 
     cap.release()

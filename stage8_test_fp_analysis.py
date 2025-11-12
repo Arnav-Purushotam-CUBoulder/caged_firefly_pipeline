@@ -98,6 +98,45 @@ def _analyze_threshold_dir_and_render(
             if not tps:
                 rows_out.append({'t': t, 'fp_x': fx, 'fp_y': fy, 'tp_x': None, 'tp_y': None, 'dist': None, 'image_path': ''})
                 no_tp_cnt += 1
+                # Even if no TP in this frame, still render FP vs GT overlay if any GT present
+                red_layer   = np.zeros_like(frame)
+                green_layer = np.zeros_like(frame)
+                # Draw FP in RED
+                _draw_centered_box(red_layer, fx, fy, box_w, box_h, (0,0,255), thickness)
+                # Draw all GT (TP+FN) in GREEN
+                for (gx, gy) in gts:
+                    _draw_centered_box(green_layer, gx, gy, box_w, box_h, (0,255,0), thickness)
+                # Compose outlines → red/green/yellow
+                composed = frame.copy()
+                red_mask   = np.any(red_layer > 0, axis=2)
+                green_mask = np.any(green_layer > 0, axis=2)
+                overlap    = red_mask & green_mask
+                only_red   = red_mask & ~overlap
+                only_green = green_mask & ~overlap
+                composed[only_red]   = (0,0,255)
+                composed[only_green] = (0,255,0)
+                composed[overlap]    = (0,255,255)
+
+                fpx = int(round(fx)); fpy = int(round(fy))
+                if gts:
+                    min_d_gt = None; min_gt = None
+                    for (gx, gy) in gts:
+                        d = _euclid((fx, fy), (gx, gy))
+                        if (min_d_gt is None) or (d < min_d_gt):
+                            min_d_gt = d; min_gt = (gx, gy)
+                    ngtx, ngty = int(round(min_gt[0])), int(round(min_gt[1]))
+                    dstr_gt = f"{min_d_gt:.6f}"
+                    legend = "LEGEND_FP=RED_GT=GREEN_OVERLAP=YELLOW"
+                    img_name_gt = (
+                        f"t{t:06d}_{legend}_FP({fpx},{fpy})_nearestGT({ngtx},{ngty})_d{dstr_gt}.png"
+                    )
+                else:
+                    legend = "LEGEND_FP=RED_GT=GREEN_OVERLAP=YELLOW"
+                    img_name_gt = (
+                        f"t{t:06d}_{legend}_FP({fpx},{fpy})_nearestGT(NA,NA)_dNA.png"
+                    )
+                out_path2 = out_img_dir_fp_vs_gt / img_name_gt
+                cv2.imwrite(str(out_path2), composed)
                 continue
             # nearest TP
             min_d = None; min_tp = None
@@ -112,19 +151,45 @@ def _analyze_threshold_dir_and_render(
             out_path = out_img_dir / f"t{t:06d}_fp_{int(round(fx))}_{int(round(fy))}_nearesttp_{int(round(min_tp[0]))}_{int(round(min_tp[1]))}.png"
             cv2.imwrite(str(out_path), canvas)
             rows_out.append({'t': t, 'fp_x': fx, 'fp_y': fy, 'tp_x': float(min_tp[0]), 'tp_y': float(min_tp[1]), 'dist': float(min_d), 'image_path': str(out_path)})
-            # overlay: GT (TP+FN) in GREEN, FP in RED
-            red = frame.copy(); green = frame.copy()
-            _draw_centered_box(red, fx, fy, box_w, box_h, (0,0,255), thickness)
+            # overlay: GT (TP+FN) in GREEN, FP in RED with nearest-GT info and unique filenames
+            red_layer   = np.zeros_like(frame)
+            green_layer = np.zeros_like(frame)
+            # Draw FP in RED
+            _draw_centered_box(red_layer, fx, fy, box_w, box_h, (0,0,255), thickness)
+            # Draw all GT in GREEN
             for (gx, gy) in gts:
-                _draw_centered_box(green, gx, gy, box_w, box_h, (0,255,0), thickness)
-            red_mask = np.any(red > 0, axis=2); green_mask = np.any(green > 0, axis=2)
-            overlap = red_mask & green_mask
-            fused = frame.copy()
-            fused[red_mask & ~overlap] = (0,0,255)
-            fused[green_mask & ~overlap] = (0,255,0)
-            fused[overlap] = (0,255,255)
-            out_path2 = out_img_dir_fp_vs_gt / f"t{t:06d}_fp_vs_gt.png"
-            cv2.imwrite(str(out_path2), fused)
+                _draw_centered_box(green_layer, gx, gy, box_w, box_h, (0,255,0), thickness)
+            # Compose outlines → red/green/yellow
+            composed = frame.copy()
+            red_mask   = np.any(red_layer > 0, axis=2)
+            green_mask = np.any(green_layer > 0, axis=2)
+            overlap    = red_mask & green_mask
+            only_red   = red_mask & ~overlap
+            only_green = green_mask & ~overlap
+            composed[only_red]   = (0,0,255)
+            composed[only_green] = (0,255,0)
+            composed[overlap]    = (0,255,255)
+
+            fpx = int(round(fx)); fpy = int(round(fy))
+            if gts:
+                min_d_gt = None; min_gt = None
+                for (gx, gy) in gts:
+                    d = _euclid((fx, fy), (gx, gy))
+                    if (min_d_gt is None) or (d < min_d_gt):
+                        min_d_gt = d; min_gt = (gx, gy)
+                ngtx, ngty = int(round(min_gt[0])), int(round(min_gt[1]))
+                dstr_gt = f"{min_d_gt:.6f}"
+                legend = "LEGEND_FP=RED_GT=GREEN_OVERLAP=YELLOW"
+                img_name_gt = (
+                    f"t{t:06d}_{legend}_FP({fpx},{fpy})_nearestGT({ngtx},{ngty})_d{dstr_gt}.png"
+                )
+            else:
+                legend = "LEGEND_FP=RED_GT=GREEN_OVERLAP=YELLOW"
+                img_name_gt = (
+                    f"t{t:06d}_{legend}_FP({fpx},{fpy})_nearestGT(NA,NA)_dNA.png"
+                )
+            out_path2 = out_img_dir_fp_vs_gt / img_name_gt
+            cv2.imwrite(str(out_path2), composed)
         _progress(frames.index(t)+1, len(frames), 'stage8-test-fp')
 
     cap.release()

@@ -114,24 +114,25 @@ def run_stage4_1() -> Path:
                     # Luminance = 0.299 R + 0.587 G + 0.114 B
                     lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
                     max_val = float(lumin.max()) if lumin.size else 0.0
-                    # Area of bright component (same threshold family)
-                    # Use the same crop in BGR space for thresholding
+                    # For naming: count bright pixels using Stage 4.2 threshold
                     crop_bgr = frame[y0:y1, x0:x1]
-                    gray_bgr = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-                    thr_bin = int(thr) - 1
-                    _, bin_img = cv2.threshold(gray_bgr, thr_bin, 255, cv2.THRESH_BINARY)
-                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
+                    thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                    nbright = int((lumin >= thr_bright).sum()) if lumin.size else 0
                     # Save BGR crops for visualization (already computed as crop_bgr)
                     # add softmax confidence from logits (if present)
+                    conf_error = False
                     try:
                         m = max(lf, lb)
                         conf = float(np.exp(lf - m) / (np.exp(lf - m) + np.exp(lb - m)))
+                        if not np.isfinite(conf):
+                            conf_error = True
                     except Exception:
+                        conf_error = True
                         conf = float('nan')
+                    conf_str = ("error" if conf_error else f"{conf:.4f}")
                     fname = (
                         f"t{t:06d}_x{int(round(x))}_y{int(round(y))}_"
-                        f"{wbox}x{hbox}_conf{0.0 if conf!=conf else conf:.4f}_max{int(round(max_val))}_area{area}.png"
+                        f"{wbox}x{hbox}_conf{conf_str}_max{int(round(max_val))}_brightpx{nbright}.png"
                     )
                     if max_val < thr:
                         dropped += 1

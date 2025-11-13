@@ -148,21 +148,21 @@ def run_stage4() -> Path:
                     # compute brightest pixel and area (thresholded connected component)
                     gray_crop = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY) if crop_bgr.size else None
                     max_val = int(gray_crop.max()) if (gray_crop is not None and gray_crop.size) else 0
-                    area = 0
+                    # Use Stage 4.2 luminance threshold to count bright pixels for naming
                     try:
-                        thr_bin = int(getattr(params, 'STAGE4_1_BRIGHT_MAX_THRESHOLD', 50)) - 1
-                        if gray_crop is not None and gray_crop.size:
-                            _, bin_img = cv2.threshold(gray_crop, thr_bin, 255, cv2.THRESH_BINARY)
-                            num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                            area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
+                        thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                        nbright = int((gray_crop >= thr_bright).sum()) if (gray_crop is not None and gray_crop.size) else 0
                     except Exception:
-                        area = 0
+                        nbright = 0
                     px = int(round(new_cx - x0c)); py = int(round(new_cy - y0c))
                     if 0 <= py < crop_bgr.shape[0] and 0 <= px < crop_bgr.shape[1]:
                         crop_bgr[py, px] = (0, 0, 255)
+                    # conf from Stage3 is passed through; may be NaN
+                    conf_error = not np.isfinite(conf)
+                    conf_str = ("error" if conf_error else f"{float(conf):.4f}")
                     out_name = (
                         f"stage4_t{idx:06d}_x{int(round(new_cx))}_y{int(round(new_cy))}_"
-                        f"{pw}x{ph}_conf{float(conf):.4f}_max{max_val}_area{area}.png"
+                        f"{pw}x{ph}_conf{conf_str}_max{max_val}_brightpx{nbright}.png"
                     )
                     cv2.imwrite(str(crops_dir / out_name), crop_bgr)
         cap.release()

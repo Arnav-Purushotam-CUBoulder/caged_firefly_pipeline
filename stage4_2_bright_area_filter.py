@@ -104,13 +104,18 @@ def run_stage4_2() -> Path:
                     max_val = float(lumin.max()) if lumin.size else 0.0
                     nbright = int((lumin >= thr).sum())
                     # also compute softmax confidence from logits
+                    conf_error = False
                     try:
                         m = max(lf, lb)
                         conf = float(np.exp(lf - m) / (np.exp(lf - m) + np.exp(lb - m)))
+                        if not np.isfinite(conf):
+                            conf_error = True
                     except Exception:
+                        conf_error = True
                         conf = float('nan')
+                    conf_str = ("error" if conf_error else f"{conf:.4f}")
                     fname = (f"t{t:06d}_x{int(round(x))}_y{int(round(y))}_"
-                             f"{wbox}x{hbox}_conf{0.0 if conf!=conf else conf:.4f}_max{int(round(max_val))}_brightpx{nbright}.png")
+                             f"{wbox}x{hbox}_conf{conf_str}_max{int(round(max_val))}_brightpx{nbright}.png")
                     if nbright < min_pix:
                         dropped += 1
                         cv2.imwrite(str(drop_dir / fname), crop_bgr)
@@ -125,4 +130,3 @@ def run_stage4_2() -> Path:
 
 
 __all__ = ['run_stage4_2']
-

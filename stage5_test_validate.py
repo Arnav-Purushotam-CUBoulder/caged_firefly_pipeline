@@ -82,6 +82,16 @@ def _center_crop_clamped(img: np.ndarray, cx: float, cy: float, w: int, h: int) 
     x0 = max(0, min(x0, W - w)); y0 = max(0, min(y0, H - h))
     return img[y0:y0+h, x0:x0+w].copy()
 
+def _center_crop_clamped_with_origin(img: np.ndarray, cx: float, cy: float, w: int, h: int):
+    """Return (crop, x0, y0) like _center_crop_clamped but also the crop origin.
+    Useful for marking the center pixel inside the crop.
+    """
+    H, W = img.shape[:2]
+    w = max(1, int(round(w))); h = max(1, int(round(h)))
+    x0 = int(round(cx - w/2.0)); y0 = int(round(cy - h/2.0))
+    x0 = max(0, min(x0, W - w)); y0 = max(0, min(y0, H - h))
+    return img[y0:y0+h, x0:x0+w].copy(), x0, y0
+
 def sub_abs(n: int) -> str:
     return (f"minus{abs(n)}" if n < 0 else f"plus{abs(n)}")
 
@@ -295,11 +305,9 @@ def _refine_gt_by_gaussian_centroid(
                         color_crop[py, px] = (0, 0, 255)
                     gray_crop = cv2.cvtColor(color_crop, cv2.COLOR_BGR2GRAY)
                     max_val = int(gray_crop.max()) if gray_crop.size else 0
-                    thr_bin = int(getattr(params, 'STAGE4_1_BRIGHT_MAX_THRESHOLD', 50)) - 1
-                    _, bin_img = cv2.threshold(gray_crop, thr_bin, 255, cv2.THRESH_BINARY)
-                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                    out_name = f"gt_refined_t{fr:06d}_x{rx}_y{ry}_{w}x{h}_max{max_val}_area{area}.png"
+                    thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                    nbright = int((gray_crop >= thr_bright).sum()) if gray_crop.size else 0
+                    out_name = f"gt_refined_t{fr:06d}_x{rx}_y{ry}_{w}x{h}_max{max_val}_brightpx{nbright}.png"
                     cv2.imwrite(str(save_dir / out_name), color_crop)
         fr += 1
     cap.release()
@@ -351,16 +359,13 @@ def _filter_gt_4_1_brightest(
                 crop_rgb = frame_rgb[y0:y1, x0:x1]
                 crop_bgr = frame[y0:y1, x0:x1]
                 if crop_rgb.size == 0:
-                    cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max0_area0.png"), crop_bgr)
+                    cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max0_brightpx0.png"), crop_bgr)
                     continue
                 lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
                 max_val = float(lumin.max()) if lumin.size else 0.0
-                gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-                thr_bin = int(thr) - 1
-                _, bin_img = cv2.threshold(gray, thr_bin, 255, cv2.THRESH_BINARY)
-                num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max{int(round(max_val))}_area{area}.png"
+                thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                nbright = int((lumin >= thr_bright).sum()) if lumin.size else 0
+                fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max{int(round(max_val))}_brightpx{nbright}.png"
                 if max_val < thr:
                     cv2.imwrite(str(out_drop / fname), crop_bgr)
                 else:
@@ -477,7 +482,10 @@ def _filter_gt_by_brightness_and_area(
                 if area >= int(area_threshold_px):
                     filtered[fr].append((int(x), int(y)))
                     kept += 1
-        _progress(fr+1, limit, 'stage5-test-gt-filter'); fr += 1
+        # Progress printing can be noisy; guard with a param flag
+        if getattr(params, 'STAGE5_SHOW_PROGRESS', False):
+            _progress(fr+1, limit, 'stage5-test-gt-filter')
+        fr += 1
     cap.release()
     return filtered, kept, total
 
@@ -619,6 +627,22 @@ def _write_crops_and_csvs_for_threshold(
         w_fp = csv.writer(f_fp); w_fp.writerow(['x','y','t','filepath','confidence'])
         w_tp = csv.writer(f_tp); w_tp.writerow(['x','y','t','filepath','confidence'])
         w_fn = csv.writer(f_fn); w_fn.writerow(['x','y','t','filepath','confidence'])
+        # Initialize model once to compute confidences for FN crops
+        try:
+            from stage2_cnn import build_resnet18 as _build_resnet18  # type: ignore
+        except ModuleNotFoundError:  # pragma: no cover
+            from .stage2_cnn import build_resnet18 as _build_resnet18  # type: ignore
+        import torch  # local import only within test code path
+        device = (
+            'cuda' if torch.cuda.is_available() else
+            'mps' if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() else
+            'cpu'
+        )
+        _model = _build_resnet18().to(device)
+        _ckpt = torch.load(params.MODEL_PATH, map_location=device)
+        _state = _ckpt['model'] if isinstance(_ckpt, dict) and 'model' in _ckpt else _ckpt
+        _model.load_state_dict(_state)
+        _model.eval()
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             raise RuntimeError(f"[stage5_test] Could not open video: {video_path}")
@@ -633,51 +657,72 @@ def _write_crops_and_csvs_for_threshold(
                 break
             for p in fps_by_t.get(fr, []):
                 x = float(p['x']); y = float(p['y']); conf = float(p['conf'])
-                crop = _center_crop_clamped(frame, x, y, crop_w, crop_h)
+                crop, x0c, y0c = _center_crop_clamped_with_origin(frame, x, y, crop_w, crop_h)
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
-                if gray is not None and gray.size:
-                    _, bin_img = cv2.threshold(gray, int(_NAMING_BIN_THR) - 1, 255, cv2.THRESH_BINARY)
-                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                else:
-                    area = 0
-                fname = f"FP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_conf{conf:.4f}_max{max_val}_area{area}.png"
+                thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                nbright = int((gray >= thr_bright).sum()) if (gray is not None and gray.size) else 0
+                conf_str = ("error" if not np.isfinite(conf) else f"{conf:.4f}")
+                fname = f"FP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_conf{conf_str}_max{max_val}_brightpx{nbright}.png"
+                # Mark Gaussian centroid as saturated red dot for saved crop
+                if crop.size:
+                    px = int(round(x - x0c)); py = int(round(y - y0c))
+                    if 0 <= py < crop.shape[0] and 0 <= px < crop.shape[1]:
+                        cv2.circle(crop, (px, py), radius=1, color=(0,0,255), thickness=-1)
                 outp = crops_dir_fp / fname
                 cv2.imwrite(str(outp), crop)
                 w_fp.writerow([int(round(x)), int(round(y)), fr, str(outp), f"{conf:.6f}"])
             for p in tps_by_t.get(fr, []):
                 x = float(p['x']); y = float(p['y']); conf = float(p['conf'])
-                crop = _center_crop_clamped(frame, x, y, crop_w, crop_h)
+                crop, x0c, y0c = _center_crop_clamped_with_origin(frame, x, y, crop_w, crop_h)
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
-                if gray is not None and gray.size:
-                    _, bin_img = cv2.threshold(gray, int(_NAMING_BIN_THR) - 1, 255, cv2.THRESH_BINARY)
-                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                else:
-                    area = 0
-                fname = f"TP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_conf{conf:.4f}_max{max_val}_area{area}.png"
+                thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                nbright = int((gray >= thr_bright).sum()) if (gray is not None and gray.size) else 0
+                conf_str = ("error" if not np.isfinite(conf) else f"{conf:.4f}")
+                fname = f"TP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_conf{conf_str}_max{max_val}_brightpx{nbright}.png"
+                # Mark Gaussian centroid as saturated red dot for saved crop
+                if crop.size:
+                    px = int(round(x - x0c)); py = int(round(y - y0c))
+                    if 0 <= py < crop.shape[0] and 0 <= px < crop.shape[1]:
+                        cv2.circle(crop, (px, py), radius=1, color=(0,0,255), thickness=-1)
                 outp = crops_dir_tp / fname
                 cv2.imwrite(str(outp), crop)
                 w_tp.writerow([int(round(x)), int(round(y)), fr, str(outp), f"{conf:.6f}"])
             for (gx, gy) in fns_by_t.get(fr, []):
-                conf = float('nan')  # FN confidence optional; omitted here
-                crop = _center_crop_clamped(frame, gx, gy, crop_w, crop_h)
+                crop, x0c, y0c = _center_crop_clamped_with_origin(frame, gx, gy, crop_w, crop_h)
+                # Compute model confidence for the FN crop using Stage 2 model
+                conf = float('nan')
+                try:
+                    if crop.size:
+                        # Prepare a clean RGB copy for model input (without annotations)
+                        crop_rgb = cv2.cvtColor(crop.copy(), cv2.COLOR_BGR2RGB)
+                        arr = torch.from_numpy(crop_rgb).permute(2, 0, 1).unsqueeze(0).float().div(255.0).to(device)
+                        with torch.no_grad():
+                            logits = _model(arr)
+                            probs = torch.softmax(logits, dim=1)
+                            conf = float(probs[0, 1].detach().cpu().item())
+                except Exception:
+                    conf = float('nan')
+                # Mark Gaussian centroid as saturated red dot on the saved BGR crop
+                if crop.size:
+                    px = int(round(gx - x0c)); py = int(round(gy - y0c))
+                    if 0 <= py < crop.shape[0] and 0 <= px < crop.shape[1]:
+                        cv2.circle(crop, (px, py), radius=1, color=(0,0,255), thickness=-1)
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
-                if gray is not None and gray.size:
-                    _, bin_img = cv2.threshold(gray, int(_NAMING_BIN_THR) - 1, 255, cv2.THRESH_BINARY)
-                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_img, connectivity=8)
-                    area = int(stats[1:, cv2.CC_STAT_AREA].max()) if (num > 1 and stats.shape[0] > 1) else 0
-                else:
-                    area = 0
-                conf_for_name = 0.0 if conf != conf else conf
-                fname = f"FN_t{fr:06d}_x{gx}_y{gy}_conf{conf_for_name:.4f}_max{max_val}_area{area}.png"
+                thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
+                nbright = int((gray >= thr_bright).sum()) if (gray is not None and gray.size) else 0
+                conf_for_name = 0.0 if not np.isfinite(conf) else conf
+                conf_str = ("error" if not np.isfinite(conf) else f"{conf_for_name:.4f}")
+                fname = f"FN_t{fr:06d}_x{gx}_y{gy}_conf{conf_str}_max{max_val}_brightpx{nbright}.png"
                 outp = crops_dir_fn / fname
                 cv2.imwrite(str(outp), crop)
-                w_fn.writerow([gx, gy, fr, str(outp), ("" if conf!=conf else f"{conf:.6f}")])
-            _progress(fr+1, limit, f"stage5-test-crops@{_thr_folder_name(thr)}"); fr += 1
+                w_fn.writerow([gx, gy, fr, str(outp), ("" if not np.isfinite(conf) else f"{conf:.6f}")])
+            # Suppress per-frame crop progress by default; enable via params.STAGE5_SHOW_PROGRESS
+            if getattr(params, 'STAGE5_SHOW_PROGRESS', False):
+                _progress(fr+1, limit, f"stage5-test-crops@{_thr_folder_name(thr)}")
+            fr += 1
         cap.release()
 
 

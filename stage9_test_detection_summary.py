@@ -11,7 +11,7 @@ import json
 import re
 
 
-_MAX_AREA_RE = re.compile(r"_max(?P<bright>\d+)_area(?P<area>\d+)\.png$", re.IGNORECASE)
+_MAX_AREA_RE = re.compile(r"_max(?P<bright>\d+)_brightpx(?P<area>\d+)\.png$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)

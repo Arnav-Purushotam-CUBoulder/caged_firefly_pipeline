@@ -122,7 +122,6 @@ def main():
     try:
         videos = params.list_videos()
         vid_map = {p.stem: p for p in videos}
-        stage4_csvs = sorted(params.STAGE4_DIR.glob('*_gauss.csv'))
 
         def _find_gt_csv_for_video(stem: str) -> Path | None:
             # Prefer per-video CSVs in GT_CSV_DIR
@@ -152,9 +151,12 @@ def main():
             except Exception:
                 pass
             return None
-        for pred_csv in stage4_csvs:
-            stem = pred_csv.stem.replace('_gauss', '')
-            vpath = vid_map.get(stem)
+        for stem, vpath in vid_map.items():
+            # Use only Stage 4.2 filtered predictions for test/overlay stages
+            pred_csv = (params.STAGE4_2_DIR / stem / f"{stem}_gauss_brightarea_filtered.csv").resolve()
+            if not pred_csv.exists():
+                print(f"[post] Warning: Stage4.2 CSV not found for video '{stem}'. Skipping test stages.")
+                continue
             if vpath is None:
                 print(f"[post] Warning: no matching video for {pred_csv.name}")
                 continue

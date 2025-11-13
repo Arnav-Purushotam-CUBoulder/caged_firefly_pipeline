@@ -54,7 +54,7 @@ BOX_SIZE_PX = 40             # square box size around centroid (px)
 BOX_COLOR_BGR = (0, 0, 255)  # drawing color for final render
 BOX_THICKNESS = 1
 FOURCC = 'mp4v'
-N = 1500                     # None → process full video
+N = 4500                     # None → process full video
 BATCH_SIZE = 32768            # batch size for CNN inference
 
 # Stage1 variant: 'sbd' (OpenCV SimpleBlobDetector) or 'cucim' (GPU blob_log)
@@ -89,7 +89,7 @@ STAGE4_1_BRIGHT_MAX_THRESHOLD = 190  # drop candidates whose patch max luminance
 
 # Stage 4.2 — bright-area pixels filter
 RUN_STAGE4_2 = True
-STAGE4_2_INTENSITY_THR = 180        # pixel is "bright" if luminance >= this
+STAGE4_2_INTENSITY_THR = 190        # pixel is "bright" if luminance >= this
 STAGE4_2_MIN_BRIGHT_PIXELS = 20      # require at least this many bright pixels
 
 # CNN classification
@@ -116,7 +116,7 @@ GT_CSV_PATH = None
 GT_T_OFFSET = 0  # frames to subtract from GT 't' to align with video index
 
 # Validation sweep thresholds (pixels)
-DIST_THRESHOLDS_PX = [10.0,20.0,25.0,30.0,40.0]
+DIST_THRESHOLDS_PX = [10.0,20.0,30.0,40.0]
 
 # Cropping sizes for validation and overlays (defaults derived from BOX_SIZE_PX)
 TEST_CROP_W = int(BOX_SIZE_PX)

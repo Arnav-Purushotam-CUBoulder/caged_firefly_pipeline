@@ -152,11 +152,15 @@ def _analyze_threshold_dir_and_render(
                 d = _euclid((fx, fy), (tx, ty))
                 if (min_d is None) or (d < min_d):
                     min_d = d; min_tp = (tx, ty)
-            # render FN + nearest TP
+            # render FN (GREEN) + nearest TP (RED)
             canvas = frame.copy()
-            _draw_centered_box(canvas, fx, fy, box_w, box_h, color, thickness)
-            _draw_centered_box(canvas, min_tp[0], min_tp[1], box_w, box_h, color, thickness)
-            out_path = out_img_dir / f"t{t:06d}_fn_{int(round(fx))}_{int(round(fy))}_nearesttp_{int(round(min_tp[0]))}_{int(round(min_tp[1]))}.png"
+            _draw_centered_box(canvas, fx, fy, box_w, box_h, (0,255,0), thickness)
+            _draw_centered_box(canvas, min_tp[0], min_tp[1], box_w, box_h, (0,0,255), thickness)
+            fnx = int(round(fx)); fny = int(round(fy))
+            ntx = int(round(min_tp[0])); nty = int(round(min_tp[1]))
+            dstr = f"{float(min_d):.6f}"
+            legend = "LEGEND_FN=GREEN_TP=RED"
+            out_path = out_img_dir / f"t{t:06d}_{legend}_FN({fnx},{fny})_nearestTP({ntx},{nty})_d{dstr}.png"
             cv2.imwrite(str(out_path), canvas)
             rows_out.append({'t': t, 'fn_x': fx, 'fn_y': fy, 'tp_x': float(min_tp[0]), 'tp_y': float(min_tp[1]), 'dist': float(min_d), 'image_path': str(out_path)})
             # overlay: preds (TP+FP) in RED and FN in GREEN with nearest-PRED info and unique filenames

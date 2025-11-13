@@ -324,6 +324,9 @@ def _filter_gt_4_1_brightest(
     max_frames: Optional[int],
 ) -> Dict[int, List[Tuple[int,int]]]:
     """Apply Stage 4.1-style brightest-pixel threshold to GT. Saves crops.
+    IMPORTANT: To exactly mirror Stage 4.1 semantics on model candidates,
+    we deliberately ignore any per-point GT widths/heights here and always
+    use the pipeline patch size (patch_default, typically BOX_SIZE_PX).
     Returns filtered GT map.
     """
     from collections import defaultdict
@@ -344,15 +347,14 @@ def _filter_gt_4_1_brightest(
         if not ok:
             break
         dets = gt_by_t.get(fr, [])
-        sizes = (per_point_wh.get(fr) if (per_point_wh is not None) else None)
+        # Intentionally ignore GT per-point sizes so GT filtering matches model filtering
+        sizes = None
         if dets:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             H, W = frame_rgb.shape[:2]
             for idx_pt, (x, y) in enumerate(dets):
-                if sizes is not None and idx_pt < len(sizes):
-                    wbox = max(1, int(round(sizes[idx_pt][0]))); hbox = max(1, int(round(sizes[idx_pt][1])))
-                else:
-                    wbox = hbox = int(patch_default)
+                # Always use pipeline patch size to match Stage 4.1
+                wbox = hbox = int(patch_default)
                 x0 = int(round(x - wbox/2.0)); y0 = int(round(y - hbox/2.0))
                 x0 = max(0, min(x0, W - wbox)); y0 = max(0, min(y0, H - hbox))
                 x1 = x0 + wbox; y1 = y0 + hbox
@@ -361,10 +363,11 @@ def _filter_gt_4_1_brightest(
                 if crop_rgb.size == 0:
                     cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max0_brightpx0.png"), crop_bgr)
                     continue
-                lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
-                max_val = float(lumin.max()) if lumin.size else 0.0
+                # Use OpenCV grayscale to match how Stage 5 names FN/TP/FP crops
+                gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+                max_val = float(gray.max()) if gray.size else 0.0
                 thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
-                nbright = int((lumin >= thr_bright).sum()) if lumin.size else 0
+                nbright = int((gray >= thr_bright).sum()) if gray.size else 0
                 fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_max{int(round(max_val))}_brightpx{nbright}.png"
                 if max_val < thr:
                     cv2.imwrite(str(out_drop / fname), crop_bgr)
@@ -387,6 +390,9 @@ def _filter_gt_4_2_bright_area(
     max_frames: Optional[int],
 ) -> Dict[int, List[Tuple[int,int]]]:
     """Apply Stage 4.2-style bright-area pixels filter to GT. Saves crops.
+    IMPORTANT: To exactly mirror Stage 4.2 semantics on model candidates,
+    we deliberately ignore any per-point GT widths/heights here and always
+    use the pipeline patch size (patch_default, typically BOX_SIZE_PX).
     Returns filtered GT map.
     """
     from collections import defaultdict
@@ -407,15 +413,14 @@ def _filter_gt_4_2_bright_area(
         if not ok:
             break
         dets = gt_by_t.get(fr, [])
-        sizes = (per_point_wh.get(fr) if (per_point_wh is not None) else None)
+        # Intentionally ignore GT per-point sizes so GT filtering matches model filtering
+        sizes = None
         if dets:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             H, W = frame_rgb.shape[:2]
             for idx_pt, (x, y) in enumerate(dets):
-                if sizes is not None and idx_pt < len(sizes):
-                    wbox = max(1, int(round(sizes[idx_pt][0]))); hbox = max(1, int(round(sizes[idx_pt][1])))
-                else:
-                    wbox = hbox = int(patch_default)
+                # Always use pipeline patch size to match Stage 4.2
+                wbox = hbox = int(patch_default)
                 x0 = int(round(x - wbox/2.0)); y0 = int(round(y - hbox/2.0))
                 x0 = max(0, min(x0, W - wbox)); y0 = max(0, min(y0, H - hbox))
                 x1 = x0 + wbox; y1 = y0 + hbox
@@ -424,8 +429,9 @@ def _filter_gt_4_2_bright_area(
                 if crop_rgb.size == 0:
                     cv2.imwrite(str(out_drop / f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_brightpx0_thr{int(thr)}.png"), crop_bgr)
                     continue
-                lumin = (0.299 * crop_rgb[:, :, 0] + 0.587 * crop_rgb[:, :, 1] + 0.114 * crop_rgb[:, :, 2])
-                nbright = int((lumin >= thr).sum())
+                # Use OpenCV grayscale to match how Stage 5 names FN/TP/FP crops
+                gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+                nbright = int((gray >= thr).sum())
                 fname = f"t{fr:06d}_x{int(x)}_y{int(y)}_{wbox}x{hbox}_brightpx{nbright}_thr{int(thr)}.png"
                 if nbright < int(min_pix):
                     cv2.imwrite(str(out_drop / fname), crop_bgr)
@@ -704,11 +710,7 @@ def _write_crops_and_csvs_for_threshold(
                             conf = float(probs[0, 1].detach().cpu().item())
                 except Exception:
                     conf = float('nan')
-                # Mark Gaussian centroid as saturated red dot on the saved BGR crop
-                if crop.size:
-                    px = int(round(gx - x0c)); py = int(round(gy - y0c))
-                    if 0 <= py < crop.shape[0] and 0 <= px < crop.shape[1]:
-                        cv2.circle(crop, (px, py), radius=1, color=(0,0,255), thickness=-1)
+                # Compute brightness stats BEFORE annotation to keep counts consistent
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
                 thr_bright = int(getattr(params, 'STAGE4_2_INTENSITY_THR', 200))
@@ -717,6 +719,11 @@ def _write_crops_and_csvs_for_threshold(
                 conf_str = ("error" if not np.isfinite(conf) else f"{conf_for_name:.4f}")
                 fname = f"FN_t{fr:06d}_x{gx}_y{gy}_conf{conf_str}_max{max_val}_brightpx{nbright}.png"
                 outp = crops_dir_fn / fname
+                # Mark Gaussian centroid as saturated red dot on the saved BGR crop (after stats)
+                if crop.size:
+                    px = int(round(gx - x0c)); py = int(round(gy - y0c))
+                    if 0 <= py < crop.shape[0] and 0 <= px < crop.shape[1]:
+                        cv2.circle(crop, (px, py), radius=1, color=(0,0,255), thickness=-1)
                 cv2.imwrite(str(outp), crop)
                 w_fn.writerow([gx, gy, fr, str(outp), ("" if not np.isfinite(conf) else f"{conf:.6f}")])
             # Suppress per-frame crop progress by default; enable via params.STAGE5_SHOW_PROGRESS

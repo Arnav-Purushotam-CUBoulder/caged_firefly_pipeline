@@ -94,7 +94,7 @@ STAGE4_2_MIN_BRIGHT_PIXELS = 20      # require at least this many bright pixels
 
 # CNN classification
 MODEL_PATH = str(Path("/home/guest/Desktop/arnav's files/caged_firefly_pipeline/models/colo_real_dataset_ResNet18_best_model.pt"))
-CONFIDENCE_MIN = 0.98        # accept as firefly if conf >= this
+CONFIDENCE_MIN = 0.90        # accept as firefly if conf >= this
 
 # ------------------------------------------------------------------
 # Post-pipeline testing/validation configuration

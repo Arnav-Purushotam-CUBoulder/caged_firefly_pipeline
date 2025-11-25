@@ -6,13 +6,13 @@ Firefly-flash annotator  –  v4.7
 • Filename and progress counter are shown in a header above the canvas,
   leaving the full area below for the picture.
 • Boxes are always stored in ORIGINAL coordinates.
-• Keys:  ← / →  navigate, space = undo last, click = add 10×10 box.
+• Keys:  ← / →  navigate, space = undo last, click = add box centered on cursor.
 • Hover shows **R,G,B** *and* a single-channel intensity next to cursor.
       – intensity = round(0.299 R + 0.587 G + 0.114 B)
 
 Changes since v4.6-p
   ✱ Keeps session-persistence fix (basename comparison).
-  ✱ Adds real-time hover read-out of the brightest pixel in the 10×10
+  ✱ Adds real-time hover read-out of the brightest pixel in the BOX_SIZE
     window centred on the cursor.
 """
 
@@ -266,8 +266,8 @@ def on_click(event) -> None:
     h, w           = state["current_np"].shape[:2]
     if not (0 <= ox_img < w and 0 <= oy_img < h):
         return
-    gray = cv2.cvtColor(state["current_np"], cv2.COLOR_RGB2GRAY)
-    bx, by = find_nearest_brightest(gray, ox_img, oy_img)
+    # Use the exact click location as the box center (no recentering)
+    bx, by = ox_img, oy_img
     fname  = state["frames"][state["idx"]].name
     state["boxes"].setdefault(fname, []).append((bx, by))
     save_box(bx, by)

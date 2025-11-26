@@ -49,6 +49,11 @@ MAX_FRAMES: int | None = 2000
 # Drop any detection whose patch max luminance is below this threshold.
 # Luminance formula: 0.299*R + 0.587*G + 0.114*B (matching main caged_fireflies pipeline).
 STAGE2_BRIGHT_MAX_THRESHOLD: float = 190.0
+# Additional Stage 2 bright-area filter (like original Stage4.2)
+# A pixel is "bright" if its grayscale >= STAGE2_AREA_INTENSITY_THR.
+# Require at least STAGE2_AREA_MIN_BRIGHT_PIXELS such pixels in the patch.
+STAGE2_AREA_INTENSITY_THR: int = 190
+STAGE2_AREA_MIN_BRIGHT_PIXELS: int = 20
 # Patch classifier (ResNet18) used to further filter Stage 2 detections.
 STAGE2_PATCH_MODEL_PATH: Path = Path(
 "/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/colo_real_dataset_ResNet18_best_model.pt"
@@ -144,6 +149,8 @@ __all__ = [
     "RUN_PRE_RUN_CLEANUP",
     "MAX_FRAMES",
     "STAGE2_BRIGHT_MAX_THRESHOLD",
+    "STAGE2_AREA_INTENSITY_THR",
+    "STAGE2_AREA_MIN_BRIGHT_PIXELS",
     "STAGE2_PATCH_MODEL_PATH",
     "STAGE2_PATCH_BOX_SIZE",
     "STAGE2_PATCH_BATCH_SIZE",

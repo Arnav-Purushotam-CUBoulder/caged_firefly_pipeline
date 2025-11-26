@@ -192,6 +192,8 @@ def run_for_video(video_path: Path) -> Path:
     bright_dropped = 0
     cnn_kept = 0
     cnn_dropped = 0
+    area_kept = 0
+    area_dropped = 0
 
     # Accumulate patches for CNN in mini-batches
     pending_patches: List[np.ndarray] = []
@@ -278,6 +280,71 @@ def run_for_video(video_path: Path) -> Path:
     # Flush remaining CNN batch
     _flush_batch()
 
+    # --- Optional bright-area filter (Stage4.2-style) ---
+    area_thr = int(getattr(params, "STAGE2_AREA_INTENSITY_THR", 190))
+    area_min = int(getattr(params, "STAGE2_AREA_MIN_BRIGHT_PIXELS", 0))
+    if area_min > 0 and kept_rows:
+        by_t_final = _group_by_frame(kept_rows)
+        kept_rows_area: List[dict] = []
+        cap2, W2, H2, fps2, total2 = _open_video(video_path)
+        max_frames2 = getattr(params, "MAX_FRAMES", None)
+        if max_frames2 is not None:
+            limit2 = min(total2, int(max_frames2))
+        else:
+            limit2 = total2
+        try:
+            for t in range(limit2):
+                ok2, frame2 = cap2.read()
+                if not ok2:
+                    break
+                dets2 = by_t_final.get(t, [])
+                if not dets2:
+                    continue
+                gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+                Hf2, Wf2 = gray2.shape[:2]
+                for row in dets2:
+                    try:
+                        x = int(float(row["x"]))
+                        y = int(float(row["y"]))
+                        w = int(float(row["w"]))
+                        h = int(float(row["h"]))
+                    except Exception:
+                        area_dropped += 1
+                        continue
+                    if w <= 0 or h <= 0:
+                        area_dropped += 1
+                        continue
+                    x0 = max(0, min(x, Wf2 - 1))
+                    y0 = max(0, min(y, Hf2 - 1))
+                    x1 = max(0, min(x0 + w, Wf2))
+                    y1 = max(0, min(y0 + h, Hf2))
+                    if x1 <= x0 or y1 <= y0:
+                        area_dropped += 1
+                        continue
+                    patch2 = gray2[y0:y1, x0:x1]
+                    if patch2.size == 0:
+                        area_dropped += 1
+                        continue
+                    _, bin_img = cv2.threshold(
+                        patch2, int(area_thr), 255, cv2.THRESH_BINARY
+                    )
+                    num, labels, stats, centroids = cv2.connectedComponentsWithStats(
+                        bin_img, connectivity=8
+                    )
+                    area = (
+                        int(stats[1:, cv2.CC_STAT_AREA].max())
+                        if (num > 1 and stats.shape[0] > 1)
+                        else 0
+                    )
+                    if area >= int(area_min):
+                        kept_rows_area.append(row)
+                        area_kept += 1
+                    else:
+                        area_dropped += 1
+        finally:
+            cap2.release()
+        kept_rows = kept_rows_area
+
     # Write filtered CSV
     with out_csv.open("w", newline="") as f:
         writer = csv.DictWriter(
@@ -301,7 +368,9 @@ def run_for_video(video_path: Path) -> Path:
         f"Stage2  Video: {video_path.name}; detections_in={total_in}; "
         f"bright_kept={bright_kept}; bright_dropped={bright_dropped}; "
         f"cnn_kept={cnn_kept}; cnn_dropped={cnn_dropped}; "
-        f"thr_bright={thr}; thr_patch={pos_thr}"
+        f"area_kept={area_kept}; area_dropped={area_dropped}; "
+        f"thr_bright={thr}; thr_patch={pos_thr}; "
+        f"thr_area_intensity={area_thr}; thr_area_min_pixels={area_min}"
     )
     return out_csv
 

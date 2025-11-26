@@ -2,11 +2,13 @@
 """
 Stage 8 (test) — Analyze false positives (FPs) for the YOLO pipeline.
 
-For each threshold directory thr_* under a per-video Stage 5 output folder,
-compute the nearest GT (TP or FN) to each FP and write a CSV:
-  thr_*/fp_nearest_tp.csv
-
-No images are rendered here; this stage is purely numeric.
+For each thr_* directory under the per-video Stage 5 output folder, this stage:
+  - Computes nearest GT (TP or FN) for each FP and writes:
+        thr_*/fp_nearest_tp.csv
+  - Saves full-frame images with FP and nearest GT marked:
+        thr_*/fp_pair_frames/
+  - Saves full-frame overlays with GT (TP+FN) in green and FP in red:
+        thr_*/fp_vs_gt_frames/
 """
 from __future__ import annotations
 
@@ -14,6 +16,9 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 import csv
 import math
+
+import cv2
+import numpy as np
 
 
 def _progress(i: int, total: int, tag: str = "") -> None:
@@ -47,12 +52,44 @@ def _euclid(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.sqrt(dx * dx + dy * dy)
 
 
-def _analyze_threshold_dir(thr_dir: Path) -> Tuple[int, int]:
-    """Compute nearest GT (TP or FN) for each FP under a given thr_* directory."""
+def _draw_centered_box(
+    img: np.ndarray,
+    cx: float,
+    cy: float,
+    w: int,
+    h: int,
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+) -> None:
+    H, W = img.shape[:2]
+    x0 = int(round(cx - w / 2.0))
+    y0 = int(round(cy - h / 2.0))
+    x1 = x0 + int(w) - 1
+    y1 = y0 + int(h) - 1
+    x0 = max(0, min(x0, W - 1))
+    y0 = max(0, min(y0, H - 1))
+    x1 = max(0, min(x1, W - 1))
+    y1 = max(0, min(y1, H - 1))
+    cv2.rectangle(img, (x0, y0), (x1, y1), color, thickness)
+
+
+def _analyze_threshold_dir(
+    thr_dir: Path,
+    orig_video_path: Path,
+    box_w: int,
+    box_h: int,
+    thickness: int,
+) -> Tuple[int, int]:
+    """Compute nearest GT (TP or FN) for each FP and render diagnostic frames."""
     fps_csv = thr_dir / "fps.csv"
     tps_csv = thr_dir / "tps.csv"
     fns_csv = thr_dir / "fns.csv"
     out_csv = thr_dir / "fp_nearest_tp.csv"
+
+    out_pair_dir = thr_dir / "fp_pair_frames"
+    out_pair_dir.mkdir(parents=True, exist_ok=True)
+    out_vs_gt_dir = thr_dir / "fp_vs_gt_frames"
+    out_vs_gt_dir.mkdir(parents=True, exist_ok=True)
 
     fps_by_t = _read_points_by_frame(fps_csv)
     tps_by_t = _read_points_by_frame(tps_csv)
@@ -63,10 +100,24 @@ def _analyze_threshold_dir(thr_dir: Path) -> Tuple[int, int]:
     no_gt_cnt = 0
 
     rows_out: List[Dict[str, object]] = []
+    cap = cv2.VideoCapture(str(orig_video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"[stage8_test] Could not open video: {orig_video_path}")
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
     for t in frames:
+        ok = cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, min(t, total_frames - 1)))
+        ok, frame = cap.read()
+        if not ok:
+            continue
         fps = fps_by_t.get(t, [])
-        gts = (tps_by_t.get(t, []) or []) + (fns_by_t.get(t, []) or [])
+        tps = tps_by_t.get(t, [])
+        fns = fns_by_t.get(t, [])
+        gts = (tps or []) + (fns or [])
+
         for (fx, fy) in fps:
+            fpx = int(round(fx))
+            fpy = int(round(fy))
             if not gts:
                 rows_out.append(
                     {
@@ -78,8 +129,21 @@ def _analyze_threshold_dir(thr_dir: Path) -> Tuple[int, int]:
                         "dist": None,
                     }
                 )
+                # Render FP vs GT overlay even if no GT points (only FP highlighted)
+                red_layer = np.zeros_like(frame)
+                green_layer = np.zeros_like(frame)
+                _draw_centered_box(
+                    red_layer, fx, fy, box_w, box_h, (0, 0, 255), thickness
+                )
+                composed = frame.copy()
+                red_mask = np.any(red_layer > 0, axis=2)
+                composed[red_mask] = (0, 0, 255)
+                img_name = f"t{t:06d}_FP({fpx},{fpy})_nearestGT(NA,NA)_dNA.png"
+                cv2.imwrite(str(out_vs_gt_dir / img_name), composed)
                 no_gt_cnt += 1
                 continue
+
+            # nearest GT (TP or FN)
             min_d = None
             min_gt = None
             for (gx, gy) in gts:
@@ -87,6 +151,44 @@ def _analyze_threshold_dir(thr_dir: Path) -> Tuple[int, int]:
                 if min_d is None or d < min_d:
                     min_d = d
                     min_gt = (gx, gy)
+            ngx = int(round(min_gt[0]))
+            ngy = int(round(min_gt[1]))
+            dstr = f"{float(min_d):.6f}"
+
+            # pair frame: FP=RED, GT=GREEN
+            canvas = frame.copy()
+            _draw_centered_box(canvas, fx, fy, box_w, box_h, (0, 0, 255), thickness)
+            _draw_centered_box(canvas, min_gt[0], min_gt[1], box_w, box_h, (0, 255, 0), thickness)
+            pair_path = (
+                out_pair_dir
+                / f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_d{dstr}.png"
+            )
+            cv2.imwrite(str(pair_path), canvas)
+
+            # overlay: GT in GREEN (TP+FN), FP in RED
+            red_layer = np.zeros_like(frame)
+            green_layer = np.zeros_like(frame)
+            _draw_centered_box(
+                red_layer, fx, fy, box_w, box_h, (0, 0, 255), thickness
+            )
+            for (gx, gy) in gts:
+                _draw_centered_box(
+                    green_layer, gx, gy, box_w, box_h, (0, 255, 0), thickness
+                )
+            composed = frame.copy()
+            red_mask = np.any(red_layer > 0, axis=2)
+            green_mask = np.any(green_layer > 0, axis=2)
+            overlap = red_mask & green_mask
+            only_red = red_mask & ~overlap
+            only_green = green_mask & ~overlap
+            composed[only_red] = (0, 0, 255)
+            composed[only_green] = (0, 255, 0)
+            composed[overlap] = (0, 255, 255)
+            img_name = (
+                f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_d{dstr}.png"
+            )
+            cv2.imwrite(str(out_vs_gt_dir / img_name), composed)
+
             rows_out.append(
                 {
                     "t": t,
@@ -97,6 +199,9 @@ def _analyze_threshold_dir(thr_dir: Path) -> Tuple[int, int]:
                     "dist": float(min_d),
                 }
             )
+
+    cap.release()
+
     with out_csv.open("w", newline="") as f:
         w = csv.DictWriter(
             f, fieldnames=["t", "fp_x", "fp_y", "gt_x", "gt_y", "dist"]
@@ -116,7 +221,7 @@ def stage8_test_fp_nearest_tp_analysis(
     thickness: int,
     verbose: bool = True,
 ) -> None:
-    """Run FP nearest-GT analysis for all thresholds for one video."""
+    """Run FP nearest-GT analysis and render diagnostics for all thresholds for one video."""
     stage9_video_dir = Path(stage9_video_dir)
     if not stage9_video_dir.exists():
         if verbose:
@@ -132,7 +237,9 @@ def stage8_test_fp_nearest_tp_analysis(
         return
 
     for i, thr_dir in enumerate(thr_dirs, start=1):
-        total_fps, no_gt = _analyze_threshold_dir(thr_dir)
+        total_fps, no_gt = _analyze_threshold_dir(
+            thr_dir, orig_video_path, box_w, box_h, thickness
+        )
         if verbose:
             print(
                 f"[stage8_test] {stage9_video_dir.name} / {thr_dir.name}: "

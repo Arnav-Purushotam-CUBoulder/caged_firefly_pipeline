@@ -11,6 +11,7 @@ import cv2
 import params
 from stage0_cleanup import cleanup_root
 from stage1_yolo_detect import run_for_video as stage1_run
+from stage1_render_raw import run_for_video as stage1_render_raw_run
 from stage2_filter import run_for_video as stage2_run
 from stage3_gaussian_centroid import run_for_video as stage3_run
 from stage4_render import run_for_video as stage4_run
@@ -165,6 +166,13 @@ def main(argv: list[str] | None = None) -> int:
         s1_csv = stage1_run(vid)
         stage_times["stage1"] = time.perf_counter() - t0
         print(f"Stage1  Time: {stage_times['stage1']:.2f}s (csv: {s1_csv.name})")
+
+        # Render raw YOLO detections from Stage1 for debugging/inspection
+        try:
+            raw_vid = stage1_render_raw_run(vid)
+            print(f"Stage1_raw  Raw YOLO render: {raw_vid.name}")
+        except Exception as e:
+            print(f"Stage1_raw  Raw YOLO render skipped due to error: {e}")
 
         t0 = time.perf_counter()
         s2_csv = stage2_run(vid)

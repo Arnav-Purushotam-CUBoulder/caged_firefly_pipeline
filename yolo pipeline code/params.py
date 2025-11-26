@@ -43,7 +43,7 @@ VIDEO_EXTS = {".mp4", ".MP4", ".mov", ".MOV", ".avi", ".AVI", ".mkv", ".MKV"}
 RUN_PRE_RUN_CLEANUP: bool = True
 
 # Frame cap (None = full video)
-MAX_FRAMES: int | None = None
+MAX_FRAMES: int | None = 4500
 
 # Stage 2 — brightest-pixel + patch-classifier filter
 # Drop any detection whose patch max luminance is below this threshold.

@@ -384,6 +384,8 @@ def _write_crops_and_csvs_for_threshold(
             if not ok:
                 break
 
+            area_thr = int(getattr(params, "STAGE2_AREA_INTENSITY_THR", 190))
+
             # False positives
             for p in fps_by_t.get(fr, []):
                 x = float(p["x"])
@@ -394,9 +396,11 @@ def _write_crops_and_csvs_for_threshold(
                 )
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
+                 # bright pixels above area threshold
+                nbright = int((gray >= area_thr).sum()) if (gray is not None and gray.size) else 0
                 fname = (
                     f"FP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_"
-                    f"max{max_val}.png"
+                    f"max{max_val}_brightpx{nbright}.png"
                 )
                 outp = crops_dir_fp / fname
                 cv2.imwrite(str(outp), crop)
@@ -420,9 +424,10 @@ def _write_crops_and_csvs_for_threshold(
                 )
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
+                nbright = int((gray >= area_thr).sum()) if (gray is not None and gray.size) else 0
                 fname = (
                     f"TP_t{fr:06d}_x{int(round(x))}_y{int(round(y))}_"
-                    f"max{max_val}.png"
+                    f"max{max_val}_brightpx{nbright}.png"
                 )
                 outp = crops_dir_tp / fname
                 cv2.imwrite(str(outp), crop)
@@ -443,7 +448,8 @@ def _write_crops_and_csvs_for_threshold(
                 )
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.size else None
                 max_val = int(gray.max()) if (gray is not None and gray.size) else 0
-                fname = f"FN_t{fr:06d}_x{int(round(gx))}_y{int(round(gy))}_max{max_val}.png"
+                nbright = int((gray >= area_thr).sum()) if (gray is not None and gray.size) else 0
+                fname = f"FN_t{fr:06d}_x{int(round(gx))}_y{int(round(gy))}_max{max_val}_brightpx{nbright}.png"
                 outp = crops_dir_fn / fname
                 cv2.imwrite(str(outp), crop)
                 w_fn.writerow(

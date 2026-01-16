@@ -53,14 +53,14 @@ STAGE2_BRIGHT_MAX_THRESHOLD: float = 190.0
 # A pixel is "bright" if its grayscale >= STAGE2_AREA_INTENSITY_THR.
 # Require at least STAGE2_AREA_MIN_BRIGHT_PIXELS such pixels in the patch.
 STAGE2_AREA_INTENSITY_THR: int = 190
-STAGE2_AREA_MIN_BRIGHT_PIXELS: int = 20
+STAGE2_AREA_MIN_BRIGHT_PIXELS: int = 30
 # Patch classifier (ResNet18) used to further filter Stage 2 detections.
 STAGE2_PATCH_MODEL_PATH: Path = Path(
 "/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/colo_real_dataset_ResNet18_best_model.pt"
 )  # EDIT THIS if needed
 STAGE2_PATCH_BOX_SIZE: int = 40
 STAGE2_PATCH_BATCH_SIZE: int = 4096
-STAGE2_PATCH_POSITIVE_THRESHOLD: float = 0.60  # prob(class 1) >= this to keep
+STAGE2_PATCH_POSITIVE_THRESHOLD: float = 0.50  # prob(class 1) >= this to keep
 
 # Stage 3 — Gaussian centroid refinement
 # GAUSS_SIGMA = 0 => uniform intensity centroid; >0 => Gaussian-weighted
@@ -81,6 +81,10 @@ DIR_STAGE5_TEST_OUT = ROOT / "stage5_test_validation"
 DIR_STAGE6_TEST_OUT = ROOT / "stage6_test_overlay"
 DIR_STAGE9_TEST_OUT = ROOT / "stage9_test_summary"
 
+# Export a simplified detections CSV (x,y,w,h,frame) from final Stage 3 outputs.
+RUN_EXPORT_DETECTIONS_CSV = True
+DIR_DETECTIONS_CSV_OUT = ROOT / "detections_csv"
+
 # Ground truth input and time offset
 # Preferred layout: one CSV per video under:
 #   ROOT / 'ground truth csv folder'
@@ -99,7 +103,7 @@ TEST_CROP_H = 40
 # YOLO model + inference settings
 # Path to trained YOLO model (.pt). Provide an absolute path or adjust relative to this file.
 YOLO_MODEL_WEIGHTS: Path = Path(
-    "/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/caged pyrallis trained yolo models/caged_pyrallis_v1_best_yolo.pt" # EDIT THIS
+    "/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/caged pyrallis trained yolo models/caged_pyrallis_v3_best_yolo.pt" # EDIT THIS
 )
 
 # - YOLO_IMG_SIZE: None → use Ultralytics default (e.g. 640); else int side length.
@@ -107,7 +111,7 @@ YOLO_MODEL_WEIGHTS: Path = Path(
 # - YOLO_IOU_THRES: IoU threshold for NMS
 # - YOLO_DEVICE: 'auto' | 'cpu' | 'cuda' | 'mps' | CUDA index
 YOLO_IMG_SIZE: int | None = None
-YOLO_CONF_THRES: float = 0.1
+YOLO_CONF_THRES: float = 0.02
 YOLO_IOU_THRES: float = 0.3
 YOLO_DEVICE: str | int | None = "cpu"
 

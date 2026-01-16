@@ -184,7 +184,10 @@ def main():
 
             # Stage 6 (test) — overlay
             if getattr(params, 'RUN_STAGE6_TEST_OVERLAY', True):
-                out10_path = (params.DIR_STAGE6_TEST_OUT / f"{stem}_overlay.mp4").resolve()
+                out10_path = (
+                    params.DIR_STAGE6_TEST_OUT
+                    / f"{stem}_overlay_GT-green_MODEL-red_overlap-yellow.mp4"
+                ).resolve()
                 stage6_test_overlay_gt_vs_model(
                     orig_video_path=vpath,
                     pred_csv_path=pred_csv,

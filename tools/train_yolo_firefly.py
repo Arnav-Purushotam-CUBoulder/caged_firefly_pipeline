@@ -30,7 +30,7 @@ except Exception as e:  # pragma: no cover
 
 # Path to dataset root OR YAML (YOLOv8 format). If DATA_YAML is None,
 # the script expects to find 'data.yaml' inside DATASET_ROOT.
-DATASET_ROOT: Path | None = Path("/Users/arnavps/Downloads/caged-pyrallis-firefly.v3i.yolov8")
+DATASET_ROOT: Path | None = Path("/Users/arnavps/Downloads/caged-pyrallis-firefly.v4i.yolov8")
 DATA_YAML: Path | None = None  # e.g., Path("/path/to/dataset/data.yaml")
 
 # Choose model family and size. Examples:
@@ -54,7 +54,7 @@ PROJECT_DIR = Path("caged_fireflies/code/tools/yolo train output")
 RUN_NAME = f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 # Export a copy of the best weights to this path after training
-EXPORT_BEST_TO = Path("models and other data/caged pyrallis trained yolo models/caged_pyrallis_v1_best_yolo.pt")
+EXPORT_BEST_TO = Path("caged_fireflies/models and other data/caged pyrallis trained yolo models/caged_pyrallis_v2_best_yolo.pt")
 
 # If True, delete previous run directory with same RUN_NAME before training
 CLEAR_EXISTING_RUN = False

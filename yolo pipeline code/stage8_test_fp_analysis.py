@@ -20,6 +20,8 @@ import math
 import cv2
 import numpy as np
 
+import params
+
 
 def _progress(i: int, total: int, tag: str = "") -> None:
     total = max(1, int(total or 1))
@@ -73,6 +75,33 @@ def _draw_centered_box(
     cv2.rectangle(img, (x0, y0), (x1, y1), color, thickness)
 
 
+def _crop_brightness(
+    frame: np.ndarray,
+    cx: float,
+    cy: float,
+    w: int,
+    h: int,
+) -> Tuple[int, int]:
+    """Return (max_val, nbright) for a center crop using Stage2 area threshold."""
+    H, W = frame.shape[:2]
+    w = max(1, int(round(w)))
+    h = max(1, int(round(h)))
+    x0 = int(round(cx - w / 2.0))
+    y0 = int(round(cy - h / 2.0))
+    x0 = max(0, min(x0, W - w))
+    y0 = max(0, min(y0, H - h))
+    crop = frame[y0 : y0 + h, x0 : x0 + w].copy()
+    if crop.size == 0:
+        return 0, 0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    if gray.size == 0:
+        return 0, 0
+    max_val = int(gray.max())
+    area_thr = int(getattr(params, "STAGE2_AREA_INTENSITY_THR", 190))
+    nbright = int((gray >= area_thr).sum())
+    return max_val, nbright
+
+
 def _analyze_threshold_dir(
     thr_dir: Path,
     orig_video_path: Path,
@@ -118,6 +147,7 @@ def _analyze_threshold_dir(
         for (fx, fy) in fps:
             fpx = int(round(fx))
             fpy = int(round(fy))
+            fp_max, fp_bright = _crop_brightness(frame, fx, fy, box_w, box_h)
             if not gts:
                 rows_out.append(
                     {
@@ -138,7 +168,10 @@ def _analyze_threshold_dir(
                 composed = frame.copy()
                 red_mask = np.any(red_layer > 0, axis=2)
                 composed[red_mask] = (0, 0, 255)
-                img_name = f"t{t:06d}_FP({fpx},{fpy})_nearestGT(NA,NA)_dNA.png"
+                img_name = (
+                    f"t{t:06d}_FP({fpx},{fpy})_nearestGT(NA,NA)_"
+                    f"dNA_FPmax{fp_max}_FPbrightpx{fp_bright}.png"
+                )
                 cv2.imwrite(str(out_vs_gt_dir / img_name), composed)
                 no_gt_cnt += 1
                 continue
@@ -154,6 +187,7 @@ def _analyze_threshold_dir(
             ngx = int(round(min_gt[0]))
             ngy = int(round(min_gt[1]))
             dstr = f"{float(min_d):.6f}"
+            gt_max, gt_bright = _crop_brightness(frame, min_gt[0], min_gt[1], box_w, box_h)
 
             # pair frame: FP=RED, GT=GREEN
             canvas = frame.copy()
@@ -161,7 +195,11 @@ def _analyze_threshold_dir(
             _draw_centered_box(canvas, min_gt[0], min_gt[1], box_w, box_h, (0, 255, 0), thickness)
             pair_path = (
                 out_pair_dir
-                / f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_d{dstr}.png"
+                / (
+                    f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_d{dstr}_"
+                    f"FPmax{fp_max}_FPbrightpx{fp_bright}_"
+                    f"GTmax{gt_max}_GTbrightpx{gt_bright}.png"
+                )
             )
             cv2.imwrite(str(pair_path), canvas)
 
@@ -185,7 +223,9 @@ def _analyze_threshold_dir(
             composed[only_green] = (0, 255, 0)
             composed[overlap] = (0, 255, 255)
             img_name = (
-                f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_d{dstr}.png"
+                f"t{t:06d}_FP({fpx},{fpy})_nearestGT({ngx},{ngy})_"
+                f"d{dstr}_FPmax{fp_max}_FPbrightpx{fp_bright}_"
+                f"GTmax{gt_max}_GTbrightpx{gt_bright}.png"
             )
             cv2.imwrite(str(out_vs_gt_dir / img_name), composed)
 
@@ -249,4 +289,3 @@ def stage8_test_fp_nearest_tp_analysis(
 
 
 __all__ = ["stage8_test_fp_nearest_tp_analysis"]
-

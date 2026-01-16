@@ -141,6 +141,46 @@ def _build_test_pred_csv(stem: str, stage3_csv: Path, out_dir: Path) -> Path:
     return out_csv
 
 
+def _export_pipeline_detections_csv(stem: str, stage3_csv: Path, out_dir: Path) -> Path | None:
+    """Export a simple x,y,w,h,frame CSV of final pipeline detections (Stage 3 boxes)."""
+    try:
+        stage3_csv = Path(stage3_csv)
+        out_dir = Path(out_dir)
+    except Exception:
+        return None
+    if not stage3_csv.exists():
+        return None
+
+    out_root = out_dir / stem
+    out_root.mkdir(parents=True, exist_ok=True)
+    out_csv = out_root / f"{stem}_detections_xywh.csv"
+
+    total = 0
+    frames: set[int] = set()
+    with stage3_csv.open("r", newline="") as f_in, out_csv.open("w", newline="") as f_out:
+        reader = csv.DictReader(f_in)
+        writer = csv.DictWriter(f_out, fieldnames=["x", "y", "w", "h", "frame"])
+        writer.writeheader()
+        for row in reader:
+            try:
+                x = int(round(float(row.get("x", ""))))
+                y = int(round(float(row.get("y", ""))))
+                w_box = int(round(float(row.get("w", ""))))
+                h_box = int(round(float(row.get("h", ""))))
+                frame = int(round(float(row.get("frame", row.get("t", "")))))
+            except Exception:
+                continue
+            writer.writerow({"x": x, "y": y, "w": w_box, "h": h_box, "frame": frame})
+            total += 1
+            frames.add(frame)
+
+    print(
+        f"[export] {stem}: wrote detections CSV → {out_csv} "
+        f"(boxes={total}, frames_with_boxes={len(frames)})"
+    )
+    return out_csv
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = argv or sys.argv[1:]
     _ = argv  # unused for now
@@ -183,6 +223,16 @@ def main(argv: list[str] | None = None) -> int:
         s3_csv = stage3_run(vid)
         stage_times["stage3"] = time.perf_counter() - t0
         print(f"Stage3  Time: {stage_times['stage3']:.2f}s (csv: {s3_csv.name})")
+
+        # Export a simplified x,y,w,h,frame detections CSV (from Stage3 boxes)
+        if getattr(params, "RUN_EXPORT_DETECTIONS_CSV", True):
+            try:
+                export_root = Path(
+                    getattr(params, "DIR_DETECTIONS_CSV_OUT", params.ROOT / "detections_csv")
+                )
+                _export_pipeline_detections_csv(vid.stem, s3_csv, export_root)
+            except Exception as e:
+                print(f"[export] Warning: failed to export detections CSV for {vid.stem}: {e}")
 
         t0 = time.perf_counter()
         out_vid = stage4_run(vid)
@@ -242,7 +292,8 @@ def main(argv: list[str] | None = None) -> int:
             # Stage 6 — overlay GT vs model
             if getattr(params, "RUN_STAGE6_TEST_OVERLAY", True):
                 out10_path = (
-                    params.DIR_STAGE6_TEST_OUT / f"{vid.stem}_overlay.mp4"
+                    params.DIR_STAGE6_TEST_OUT
+                    / f"{vid.stem}_overlay_GT-green_MODEL-red_overlap-yellow.mp4"
                 ).resolve()
                 stage6_test_overlay_gt_vs_model(
                     orig_video_path=vid,

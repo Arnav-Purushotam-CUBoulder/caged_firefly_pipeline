@@ -14,15 +14,33 @@ import json
 from datetime import datetime, timezone
 
 
-def _parse_int(s: str) -> Optional[int]:
+def _parse_int(value: object) -> Optional[int]:
     try:
-        return int(s)
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(round(value))
+        s = str(value).strip()
+        if not s or s.lower() in {"nan", "none", "null"}:
+            return None
+        return int(round(float(s)))
     except Exception:
         return None
 
 
-def _parse_float(s: str) -> Optional[float]:
+def _parse_float(value: object) -> Optional[float]:
     try:
+        if value is None:
+            return None
+        if isinstance(value, float):
+            return value
+        if isinstance(value, int):
+            return float(value)
+        s = str(value).strip()
+        if not s or s.lower() in {"nan", "none", "null"}:
+            return None
         return float(s)
     except Exception:
         return None
@@ -131,16 +149,17 @@ def stage9_test_generate_detection_summary(
                 "FP": len(fp_rows),
                 "FN": len(fn_rows),
             },
+            "metrics": {},
             "true_positives": [],
             "false_positives": [],
             "false_negatives": [],
         }
 
         def _convert_row(row: Dict[str, str], detection_type: str) -> Dict:
-            t = _parse_int(row.get("t"))
+            t = _parse_int(row.get("t") or row.get("frame"))
             x = _parse_int(row.get("x"))
             y = _parse_int(row.get("y"))
-            conf = _parse_float(row.get("confidence"))
+            conf = _parse_float(row.get("confidence") or row.get("conf"))
             return {
                 "type": detection_type,
                 "frame": t,
@@ -148,6 +167,18 @@ def stage9_test_generate_detection_summary(
                 "y": y,
                 "confidence": conf,
             }
+
+        TP = int(thr_entry["counts"]["TP"])
+        FP = int(thr_entry["counts"]["FP"])
+        FN = int(thr_entry["counts"]["FN"])
+        prec = (TP / (TP + FP)) if (TP + FP) > 0 else 0.0
+        rec = (TP / (TP + FN)) if (TP + FN) > 0 else 0.0
+        f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
+        thr_entry["metrics"] = {
+            "precision": float(prec),
+            "recall": float(rec),
+            "f1": float(f1),
+        }
 
         for row in tp_rows:
             thr_entry["true_positives"].append(_convert_row(row, "TP"))
@@ -186,4 +217,3 @@ def stage9_test_generate_detection_summary(
 
 
 __all__ = ["stage9_test_generate_detection_summary"]
-

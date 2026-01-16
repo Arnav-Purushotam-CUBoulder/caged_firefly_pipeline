@@ -22,6 +22,8 @@ import math
 import cv2
 import numpy as np
 
+import params
+
 
 def _progress(i: int, total: int, tag: str = "") -> None:
     total = max(1, int(total or 1))
@@ -73,6 +75,33 @@ def _draw_centered_box(
     x1 = max(0, min(x1, W - 1))
     y1 = max(0, min(y1, H - 1))
     cv2.rectangle(img, (x0, y0), (x1, y1), color, thickness)
+
+
+def _crop_brightness(
+    frame: np.ndarray,
+    cx: float,
+    cy: float,
+    w: int,
+    h: int,
+) -> Tuple[int, int]:
+    """Return (max_val, nbright) for a center crop using Stage2 area threshold."""
+    H, W = frame.shape[:2]
+    w = max(1, int(round(w)))
+    h = max(1, int(round(h)))
+    x0 = int(round(cx - w / 2.0))
+    y0 = int(round(cy - h / 2.0))
+    x0 = max(0, min(x0, W - w))
+    y0 = max(0, min(y0, H - h))
+    crop = frame[y0 : y0 + h, x0 : x0 + w].copy()
+    if crop.size == 0:
+        return 0, 0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    if gray.size == 0:
+        return 0, 0
+    max_val = int(gray.max())
+    area_thr = int(getattr(params, "STAGE2_AREA_INTENSITY_THR", 190))
+    nbright = int((gray >= area_thr).sum())
+    return max_val, nbright
 
 
 def _analyze_threshold_dir_and_render(
@@ -128,8 +157,13 @@ def _analyze_threshold_dir_and_render(
             fnx = int(round(fx))
             fny = int(round(fy))
 
+            fn_max, fn_bright = _crop_brightness(frame, fx, fy, box_w, box_h)
+
             # Save raw (unannotated) frame for this FN
-            raw_name = f"FN_raw_t{t:06d}_x{fnx}_y{fny}.png"
+            raw_name = (
+                f"FN_raw_t{t:06d}_x{fnx}_y{fny}_"
+                f"max{fn_max}_brightpx{fn_bright}.png"
+            )
             cv2.imwrite(str(out_raw_dir / raw_name), frame)
 
             if not tps:
@@ -165,7 +199,8 @@ def _analyze_threshold_dir_and_render(
                     composed[only_green] = (0, 255, 0)
                     composed[overlap] = (0, 255, 255)
                     img_name_pred = (
-                        f"t{t:06d}_FN({fnx},{fny})_nearestPRED(NA,NA)_dNA.png"
+                        f"t{t:06d}_FN({fnx},{fny})_nearestPRED(NA,NA)_"
+                        f"dNA_FNmax{fn_max}_FNbrightpx{fn_bright}.png"
                     )
                     cv2.imwrite(str(out_vs_pred_dir / img_name_pred), composed)
                 continue
@@ -187,9 +222,14 @@ def _analyze_threshold_dir_and_render(
             ntx = int(round(min_tp[0]))
             nty = int(round(min_tp[1]))
             dstr = f"{float(min_d):.6f}"
+            tp_max, tp_bright = _crop_brightness(frame, min_tp[0], min_tp[1], box_w, box_h)
             out_path = (
                 out_pair_dir
-                / f"t{t:06d}_FN({fnx},{fny})_nearestTP({ntx},{nty})_d{dstr}.png"
+                / (
+                    f"t{t:06d}_FN({fnx},{fny})_nearestTP({ntx},{nty})_d{dstr}_"
+                    f"FNmax{fn_max}_FNbrightpx{fn_bright}_"
+                    f"TPmax{tp_max}_TPbrightpx{tp_bright}.png"
+                )
             )
             cv2.imwrite(str(out_path), canvas)
 
@@ -236,12 +276,18 @@ def _analyze_threshold_dir_and_render(
                 npx = int(round(min_pred[0]))
                 npy = int(round(min_pred[1]))
                 dstr_pred = f"{min_d_pred:.6f}"
+                pred_max, pred_bright = _crop_brightness(
+                    frame, min_pred[0], min_pred[1], box_w, box_h
+                )
                 img_name_pred = (
-                    f"t{t:06d}_FN({fnx},{fny})_nearestPRED({npx},{npy})_d{dstr_pred}.png"
+                    f"t{t:06d}_FN({fnx},{fny})_nearestPRED({npx},{npy})_"
+                    f"d{dstr_pred}_FNmax{fn_max}_FNbrightpx{fn_bright}_"
+                    f"PREDmax{pred_max}_PREDbrightpx{pred_bright}.png"
                 )
             else:
                 img_name_pred = (
-                    f"t{t:06d}_FN({fnx},{fny})_nearestPRED(NA,NA)_dNA.png"
+                    f"t{t:06d}_FN({fnx},{fny})_nearestPRED(NA,NA)_"
+                    f"dNA_FNmax{fn_max}_FNbrightpx{fn_bright}.png"
                 )
             cv2.imwrite(str(out_vs_pred_dir / img_name_pred), composed)
 
@@ -306,4 +352,3 @@ def stage7_test_fn_nearest_tp_analysis(
 
 
 __all__ = ["stage7_test_fn_nearest_tp_analysis"]
-

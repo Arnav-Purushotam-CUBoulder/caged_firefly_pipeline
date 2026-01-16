@@ -117,10 +117,17 @@ def stage9_test_generate_detection_summary(
         tp_rows = _load_detection_rows(thr_dir / 'tps.csv')
         fp_rows = _load_detection_rows(thr_dir / 'fps.csv')
         fn_rows = _load_detection_rows(thr_dir / 'fns.csv')
+        TP = len(tp_rows)
+        FP = len(fp_rows)
+        FN = len(fn_rows)
+        prec = (TP / (TP + FP)) if (TP + FP) > 0 else 0.0
+        rec = (TP / (TP + FN)) if (TP + FN) > 0 else 0.0
+        f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
         thr_entry = {
             'threshold_px': thr_val,
             'threshold_folder': thr_dir.name,
-            'counts': {'TP': len(tp_rows), 'FP': len(fp_rows), 'FN': len(fn_rows)},
+            'counts': {'TP': TP, 'FP': FP, 'FN': FN},
+            'metrics': {'precision': prec, 'recall': rec, 'f1': f1},
             'true_positives': [],
             'false_positives': [],
             'false_negatives': [],

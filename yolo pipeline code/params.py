@@ -19,8 +19,7 @@ from typing import List
 # Root folder for this pipeline (EDIT THIS)
 # - All stage outputs are saved here.
 # - Must contain a subfolder named "original videos" with input videos.
-ROOT: str | Path = '/Volumes/DL Project SSD/caged pyrallis yolo pipeline inference output data'
-
+ROOT: str | Path = "~/Desktop/arnav's files/caged_firefly_pipeline/inference output data"
 # Normalize ROOT to a Path object even if provided as a string
 if not isinstance(ROOT, Path):
     ROOT = Path(str(ROOT)).expanduser()
@@ -56,7 +55,7 @@ STAGE2_AREA_INTENSITY_THR: int = 190
 STAGE2_AREA_MIN_BRIGHT_PIXELS: int = 30
 # Patch classifier (ResNet18) used to further filter Stage 2 detections.
 STAGE2_PATCH_MODEL_PATH: Path = Path(
-"/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/colo_real_dataset_ResNet18_best_model.pt"
+"/home/guest/Desktop/arnav's files/caged_firefly_pipeline/models/colo_real_dataset_ResNet18_best_model.pt"
 )  # EDIT THIS if needed
 STAGE2_PATCH_BOX_SIZE: int = 40
 STAGE2_PATCH_BATCH_SIZE: int = 4096
@@ -70,11 +69,11 @@ GAUSS_SIGMA: float = 0.0
 # Post-pipeline testing/validation configuration (mirrors main pipeline)
 # ------------------------------------------------------------------
 # Toggles to run test stages from the YOLO orchestrator
-RUN_STAGE5_TEST_VALIDATE = True
-RUN_STAGE6_TEST_OVERLAY = True
-RUN_STAGE7_TEST_FN_ANALYSIS = True
-RUN_STAGE8_TEST_FP_ANALYSIS = True
-RUN_STAGE9_TEST_SUMMARY = True
+RUN_STAGE5_TEST_VALIDATE = False
+RUN_STAGE6_TEST_OVERLAY = False
+RUN_STAGE7_TEST_FN_ANALYSIS = False
+RUN_STAGE8_TEST_FP_ANALYSIS = False
+RUN_STAGE9_TEST_SUMMARY = False
 
 # Test output directories (under ROOT)
 DIR_STAGE5_TEST_OUT = ROOT / "stage5_test_validation"
@@ -101,9 +100,11 @@ TEST_CROP_W = 40
 TEST_CROP_H = 40
 
 # YOLO model + inference settings
-# Path to trained YOLO model (.pt). Provide an absolute path or adjust relative to this file.
+# Path to trained YOLO model (.pt).
+# NOTE: Ultralytics strips single quotes from weight paths internally, so avoid
+# directories with "'" in their names (e.g., "arnav's files").
 YOLO_MODEL_WEIGHTS: Path = Path(
-    "/Users/arnavps/Desktop/RA info/New Deep Learning project/TESTING_CODE/background subtraction detection method/actual background subtraction code/forresti, fixing FPs and box overlap/Proof of concept code/caged_fireflies/models and other data/caged pyrallis trained yolo models/caged_pyrallis_v3_best_yolo.pt" # EDIT THIS
+    "/home/guest/caged_firefly_models/caged_pyrallis_v3_best_yolo.pt"  # EDIT THIS if you move the weights
 )
 
 # - YOLO_IMG_SIZE: None → use Ultralytics default (e.g. 640); else int side length.

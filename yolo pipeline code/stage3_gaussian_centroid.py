@@ -112,6 +112,8 @@ def run_for_video(video_path: Path) -> Path:
                     "video_name",
                     "firefly_logit",
                     "background_logit",
+                    "gaussian_x_centroid",
+                    "gaussian_y_centroid",
                 ],
             )
             writer.writeheader()
@@ -178,6 +180,9 @@ def run_for_video(video_path: Path) -> Path:
                 new_row = dict(row)
                 new_row["x"] = int(new_x0)
                 new_row["y"] = int(new_y0)
+                # Store global Gaussian centroid coordinates for this box
+                new_row["gaussian_x_centroid"] = float(new_cx)
+                new_row["gaussian_y_centroid"] = float(new_cy)
                 out_rows.append(new_row)
                 refined += 1
 
@@ -202,6 +207,8 @@ def run_for_video(video_path: Path) -> Path:
                 "video_name",
                 "firefly_logit",
                 "background_logit",
+                "gaussian_x_centroid",
+                "gaussian_y_centroid",
             ],
         )
         writer.writeheader()
@@ -216,4 +223,3 @@ def run_for_video(video_path: Path) -> Path:
 
 
 __all__ = ["run_for_video"]
-

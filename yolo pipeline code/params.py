@@ -70,12 +70,12 @@ STAGE2_PATCH_POSITIVE_THRESHOLD: float = 0.50  # prob(class 1) >= this to keep
 #   STAGE2_DIR/<stem>/<stem>_bright_traj.csv
 # and Stage 3 will prefer that file as its input.
 STAGE2_1_ENABLE: bool = False
-STAGE2_1_LINK_RADIUS_PX: float = 12.0
+STAGE2_1_LINK_RADIUS_PX: float = 19.0
 STAGE2_1_MAX_FRAME_GAP: int = 3
 STAGE2_1_TIME_SCALE: float = 1.0
 STAGE2_1_MIN_TRACK_POINTS: int = 3
 # Intensity is measured on a fixed-size patch (in pixels) centered on the box.
-STAGE2_1_INTENSITY_PATCH_SIZE: int = 10
+STAGE2_1_INTENSITY_PATCH_SIZE: int = 40
 # "sum" | "mean" | "max" computed on grayscale values in the intensity patch.
 STAGE2_1_INTENSITY_METRIC: str = "sum"
 # Minimum (max-min) intensity range over a trajectory to be considered.

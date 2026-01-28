@@ -13,6 +13,7 @@ from stage0_cleanup import cleanup_root
 from stage1_yolo_detect import run_for_video as stage1_run
 from stage1_render_raw import run_for_video as stage1_render_raw_run
 from stage2_filter import run_for_video as stage2_run
+from stage2_1_trajectory_intensity_filter import run_for_video as stage2_1_run
 from stage3_gaussian_centroid import run_for_video as stage3_run
 from stage4_render import run_for_video as stage4_run
 
@@ -25,11 +26,15 @@ from stage9_test_detection_summary import stage9_test_generate_detection_summary
 
 
 def _print_stage_times(stage_times: dict[str, float]) -> None:
-    keys = ["stage1", "stage2", "stage3", "stage4"]
+    keys = ["stage1", "stage2", "stage2_1", "stage3", "stage4"]
     print("\nTiming summary:")
     for k in keys:
+        if k == "stage2_1" and not bool(getattr(params, "STAGE2_1_ENABLE", False)):
+            continue
         print(f"  {k}: {stage_times.get(k, 0.0):.2f}s")
-    print(f"  total: {sum(stage_times.get(k, 0.0) for k in keys):.2f}s")
+    print(
+        f"  total: {sum(stage_times.get(k, 0.0) for k in keys if not (k == 'stage2_1' and not bool(getattr(params, 'STAGE2_1_ENABLE', False)))):.2f}s"
+    )
 
 
 def _summarize_detections(csv_path: Path, video_path: Path) -> None:
@@ -218,6 +223,13 @@ def main(argv: list[str] | None = None) -> int:
         s2_csv = stage2_run(vid)
         stage_times["stage2"] = time.perf_counter() - t0
         print(f"Stage2  Time: {stage_times['stage2']:.2f}s (csv: {s2_csv.name})")
+
+        # Optional: Stage 2.1 trajectory + intensity hill filter (noise reduction)
+        if bool(getattr(params, "STAGE2_1_ENABLE", False)):
+            t0 = time.perf_counter()
+            s2_1_csv = stage2_1_run(vid)
+            stage_times["stage2_1"] = time.perf_counter() - t0
+            print(f"Stage2_1  Time: {stage_times['stage2_1']:.2f}s (csv: {s2_1_csv.name})")
 
         t0 = time.perf_counter()
         s3_csv = stage3_run(vid)

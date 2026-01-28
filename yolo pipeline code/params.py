@@ -61,6 +61,34 @@ STAGE2_PATCH_BOX_SIZE: int = 40
 STAGE2_PATCH_BATCH_SIZE: int = 4096
 STAGE2_PATCH_POSITIVE_THRESHOLD: float = 0.50  # prob(class 1) >= this to keep
 
+# Stage 2.1 — trajectory + intensity "hill" filter (optional)
+# Links Stage 2 detections across time into trajectories, samples a fixed-size
+# intensity patch around each detection center, and keeps only trajectories that
+# look like a single flash (rise then fall).
+#
+# When enabled, Stage 2.1 writes:
+#   STAGE2_DIR/<stem>/<stem>_bright_traj.csv
+# and Stage 3 will prefer that file as its input.
+STAGE2_1_ENABLE: bool = False
+STAGE2_1_LINK_RADIUS_PX: float = 12.0
+STAGE2_1_MAX_FRAME_GAP: int = 3
+STAGE2_1_TIME_SCALE: float = 1.0
+STAGE2_1_MIN_TRACK_POINTS: int = 3
+# Intensity is measured on a fixed-size patch (in pixels) centered on the box.
+STAGE2_1_INTENSITY_PATCH_SIZE: int = 10
+# "sum" | "mean" | "max" computed on grayscale values in the intensity patch.
+STAGE2_1_INTENSITY_METRIC: str = "sum"
+# Minimum (max-min) intensity range over a trajectory to be considered.
+STAGE2_1_INTENSITY_MIN_RANGE: float = 3000.0
+STAGE2_1_REQUIRE_HILL_SHAPE: bool = True
+# Hill-shape parameters (rise then fall)
+STAGE2_1_HILL_SMOOTH_WINDOW: int = 1
+STAGE2_1_HILL_PEAK_POS_MIN_FRAC: float = 0.0
+STAGE2_1_HILL_PEAK_POS_MAX_FRAC: float = 1.0
+STAGE2_1_HILL_MIN_UP_STEPS: int = 2
+STAGE2_1_HILL_MIN_DOWN_STEPS: int = 2
+STAGE2_1_HILL_MIN_MONOTONIC_FRAC: float = 0.60
+
 # Stage 3 — Gaussian centroid refinement
 # GAUSS_SIGMA = 0 => uniform intensity centroid; >0 => Gaussian-weighted
 GAUSS_SIGMA: float = 0.0
@@ -160,6 +188,21 @@ __all__ = [
     "STAGE2_PATCH_BOX_SIZE",
     "STAGE2_PATCH_BATCH_SIZE",
     "STAGE2_PATCH_POSITIVE_THRESHOLD",
+    "STAGE2_1_ENABLE",
+    "STAGE2_1_LINK_RADIUS_PX",
+    "STAGE2_1_MAX_FRAME_GAP",
+    "STAGE2_1_TIME_SCALE",
+    "STAGE2_1_MIN_TRACK_POINTS",
+    "STAGE2_1_INTENSITY_PATCH_SIZE",
+    "STAGE2_1_INTENSITY_METRIC",
+    "STAGE2_1_INTENSITY_MIN_RANGE",
+    "STAGE2_1_REQUIRE_HILL_SHAPE",
+    "STAGE2_1_HILL_SMOOTH_WINDOW",
+    "STAGE2_1_HILL_PEAK_POS_MIN_FRAC",
+    "STAGE2_1_HILL_PEAK_POS_MAX_FRAC",
+    "STAGE2_1_HILL_MIN_UP_STEPS",
+    "STAGE2_1_HILL_MIN_DOWN_STEPS",
+    "STAGE2_1_HILL_MIN_MONOTONIC_FRAC",
     "GAUSS_SIGMA",
     # yolo
     "YOLO_MODEL_WEIGHTS",

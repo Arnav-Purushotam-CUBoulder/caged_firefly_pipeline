@@ -85,9 +85,15 @@ def run_for_video(video_path: Path) -> Path:
     assert video_path.exists(), f"Video not found: {video_path}"
     stem = video_path.stem
 
-    s2_csv = (params.STAGE2_DIR / stem) / f"{stem}_bright.csv"
+    # Prefer Stage2.1 trajectory-intensity filtered output when enabled.
+    s2_csv_default = (params.STAGE2_DIR / stem) / f"{stem}_bright.csv"
+    s2_csv_traj = (params.STAGE2_DIR / stem) / f"{stem}_bright_traj.csv"
+    if bool(getattr(params, "STAGE2_1_ENABLE", False)) and s2_csv_traj.exists():
+        s2_csv = s2_csv_traj
+    else:
+        s2_csv = s2_csv_default
     if not s2_csv.exists():
-        raise FileNotFoundError(f"Missing Stage2 CSV for {stem}: {s2_csv}")
+        raise FileNotFoundError(f"Missing Stage2 input CSV for {stem}: {s2_csv}")
 
     rows: List[dict] = []
     with s2_csv.open("r", newline="") as f:

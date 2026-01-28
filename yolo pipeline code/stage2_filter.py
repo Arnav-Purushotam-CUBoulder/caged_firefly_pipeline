@@ -24,10 +24,10 @@ from pathlib import Path
 from typing import Dict, List
 import csv
 
+import params
+
 import cv2
 import numpy as np
-
-import params
 
 
 def _device_for_patch_model():

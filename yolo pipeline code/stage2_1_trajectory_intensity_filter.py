@@ -29,10 +29,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import params
+
 import cv2
 import numpy as np
-
-import params
 
 
 @dataclass(frozen=True)
@@ -444,4 +444,3 @@ def run_for_video(video_path: Path) -> Path:
 
 
 __all__ = ["run_for_video"]
-

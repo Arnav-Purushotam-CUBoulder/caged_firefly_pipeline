@@ -15,9 +15,9 @@ import csv
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
-import cv2
-
 import params
+
+import cv2
 
 
 def _open_video(path: Path):

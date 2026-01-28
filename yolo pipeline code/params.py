@@ -12,6 +12,7 @@ Edit ROOT and YOLO_MODEL_WEIGHTS to match your environment.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -19,7 +20,7 @@ from typing import List
 # Root folder for this pipeline (EDIT THIS)
 # - All stage outputs are saved here.
 # - Must contain a subfolder named "original videos" with input videos.
-ROOT: str | Path = "~/Desktop/arnav's files/caged_firefly_pipeline/inference output data"
+ROOT: str | Path = "~/Desktop/arnav's files/caged_firefly_pipeline/experimental inference output data"
 # Normalize ROOT to a Path object even if provided as a string
 if not isinstance(ROOT, Path):
     ROOT = Path(str(ROOT)).expanduser()
@@ -41,8 +42,13 @@ STAGE4_DIR: Path = ROOT / "stage4_render"
 VIDEO_EXTS = {".mp4", ".MP4", ".mov", ".MOV", ".avi", ".AVI", ".mkv", ".MKV"}
 RUN_PRE_RUN_CLEANUP: bool = True
 
+# OpenCV / FFmpeg
+# Increase read attempts to avoid transient decode/read failures on some videos.
+OPENCV_FFMPEG_READ_ATTEMPTS: int = 500_000
+os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = str(OPENCV_FFMPEG_READ_ATTEMPTS)
+
 # Frame cap (None = full video)
-MAX_FRAMES: int | None = 4500
+MAX_FRAMES: int | None = 500
 
 # Stage 2 — brightest-pixel + patch-classifier filter
 # Drop any detection whose patch max luminance is below this threshold.
@@ -180,6 +186,7 @@ __all__ = [
     # general
     "VIDEO_EXTS",
     "RUN_PRE_RUN_CLEANUP",
+    "OPENCV_FFMPEG_READ_ATTEMPTS",
     "MAX_FRAMES",
     "STAGE2_BRIGHT_MAX_THRESHOLD",
     "STAGE2_AREA_INTENSITY_THR",

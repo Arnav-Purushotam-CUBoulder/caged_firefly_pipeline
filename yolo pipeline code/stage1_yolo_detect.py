@@ -22,10 +22,10 @@ import sys
 import time
 from pathlib import Path
 
+import params
+
 import cv2
 import numpy as np
-
-import params
 
 try:
     from ultralytics import YOLO

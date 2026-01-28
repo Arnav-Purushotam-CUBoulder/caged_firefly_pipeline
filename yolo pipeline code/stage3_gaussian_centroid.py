@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Dict, List
 import csv
 
+import params
+
 import cv2
 import numpy as np
-
-import params
 
 
 def _open_video(path: Path):

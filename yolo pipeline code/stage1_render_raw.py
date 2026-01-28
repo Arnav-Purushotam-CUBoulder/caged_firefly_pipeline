@@ -17,9 +17,9 @@ import csv
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
-import cv2
-
 import params
+
+import cv2
 
 
 def _open_video(path: Path):
@@ -113,4 +113,3 @@ def run_for_video(video_path: Path) -> Path:
 
 
 __all__ = ["run_for_video"]
-

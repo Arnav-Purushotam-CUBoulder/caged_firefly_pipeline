@@ -6,9 +6,9 @@ import sys
 import time
 from pathlib import Path
 
-import cv2
-
 import params
+
+import cv2
 from stage0_cleanup import cleanup_root
 from stage1_yolo_detect import run_for_video as stage1_run
 from stage1_render_raw import run_for_video as stage1_render_raw_run

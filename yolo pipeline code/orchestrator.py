@@ -163,6 +163,34 @@ def _run_with_network_io_retries(label: str, fn):
     raise last_exc  # pragma: no cover
 
 
+def _find_best_cached_video(cache_root: Path, filename: str) -> Path | None:
+    if not cache_root.exists():
+        return None
+
+    candidates: list[Path] = []
+    direct = cache_root / filename
+    if direct.is_file():
+        candidates.append(direct)
+
+    try:
+        candidates.extend(p for p in cache_root.glob(f"*/{filename}") if p.is_file())
+    except Exception:
+        pass
+
+    def _score(p: Path) -> tuple[int, float]:
+        try:
+            st = p.stat()
+            return (int(st.st_size), float(st.st_mtime))
+        except Exception:
+            return (0, 0.0)
+
+    candidates = [p for p in candidates if not str(p).endswith(".partial") and _score(p)[0] > 0]
+    if not candidates:
+        return None
+    candidates.sort(key=_score, reverse=True)
+    return candidates[0]
+
+
 def _maybe_cache_video_locally(video_path: Path) -> Path:
     """Return a local cached copy of a GVFS SMB video (or the original path)."""
     if not bool(getattr(params, "CACHE_NETWORK_VIDEOS_LOCALLY", False)):
@@ -183,13 +211,16 @@ def _maybe_cache_video_locally(video_path: Path) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     cached_path = cache_dir / video_path.name
 
+    # Prefer an existing cached copy (avoids any network I/O when re-running).
     try:
-        src_size = int(video_path.stat().st_size)
-        if cached_path.exists() and int(cached_path.stat().st_size) == src_size and src_size > 0:
+        if cached_path.exists() and int(cached_path.stat().st_size) > 0:
             return cached_path
     except Exception:
-        if cached_path.exists():
-            return cached_path
+        pass
+
+    alt_cached = _find_best_cached_video(cache_root, video_path.name)
+    if alt_cached is not None:
+        return alt_cached
 
     tmp_path = cached_path.with_name(cached_path.name + ".partial")
     try:

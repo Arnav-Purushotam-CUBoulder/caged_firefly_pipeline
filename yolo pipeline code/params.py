@@ -53,10 +53,16 @@ os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = str(OPENCV_FFMPEG_READ_ATTEMPTS)
 # temp directory and run all stages against that local copy.
 CACHE_NETWORK_VIDEOS_LOCALLY: bool = True
 LOCAL_VIDEO_CACHE_DIR: Path = Path("~/Desktop/arnav's files/caged_firefly_pipeline/experimental inference output data/temp cache")
-DELETE_CACHED_VIDEOS_AFTER_PROCESSING: bool = True
+DELETE_CACHED_VIDEOS_AFTER_PROCESSING: bool = False
+
+# Some SMB/GVFS mounts can briefly hiccup and throw EIO/ENOTCONN.
+# These retries let stages wait and continue instead of crashing.
+NETWORK_IO_RETRY_ATTEMPTS: int = 8
+NETWORK_IO_RETRY_SLEEP_SEC: float = 5.0
+NETWORK_IO_RETRY_MAX_SLEEP_SEC: float = 60.0
 
 # Frame cap (None = full video)
-MAX_FRAMES: int | None = 500
+MAX_FRAMES: int | None = None
 
 # Stage 2 — brightest-pixel + patch-classifier filter
 # Drop any detection whose patch max luminance is below this threshold.
@@ -198,6 +204,9 @@ __all__ = [
     "CACHE_NETWORK_VIDEOS_LOCALLY",
     "LOCAL_VIDEO_CACHE_DIR",
     "DELETE_CACHED_VIDEOS_AFTER_PROCESSING",
+    "NETWORK_IO_RETRY_ATTEMPTS",
+    "NETWORK_IO_RETRY_SLEEP_SEC",
+    "NETWORK_IO_RETRY_MAX_SLEEP_SEC",
     "MAX_FRAMES",
     "STAGE2_BRIGHT_MAX_THRESHOLD",
     "STAGE2_AREA_INTENSITY_THR",

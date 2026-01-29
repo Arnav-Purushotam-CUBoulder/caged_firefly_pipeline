@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+import errno
 
 import params
 
@@ -120,6 +121,46 @@ def _copy_file_with_progress(src: Path, dst: Path, *, label: str) -> None:
             f"\r{_format_bytes(copied)} copied  {_format_bytes(speed)}/s  {label}\n"
         )
     sys.stdout.flush()
+
+
+def _is_retryable_network_io_error(exc: BaseException) -> bool:
+    if not isinstance(exc, OSError):
+        return False
+    retryable = {
+        errno.EIO,  # Input/output error (common for flaky GVFS mounts)
+        errno.ENOTCONN,  # Transport endpoint is not connected
+        errno.ETIMEDOUT,
+        errno.ECONNRESET,
+        errno.EHOSTUNREACH,
+        errno.ENETUNREACH,
+    }
+    return exc.errno in retryable
+
+
+def _run_with_network_io_retries(label: str, fn):
+    attempts = int(getattr(params, "NETWORK_IO_RETRY_ATTEMPTS", 8))
+    sleep_s = float(getattr(params, "NETWORK_IO_RETRY_SLEEP_SEC", 5.0))
+    max_sleep_s = float(getattr(params, "NETWORK_IO_RETRY_MAX_SLEEP_SEC", 60.0))
+
+    last_exc: BaseException | None = None
+    cur_sleep = max(0.1, sleep_s)
+    for attempt in range(1, max(attempts, 1) + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_retryable_network_io_error(exc):
+                raise
+            last_exc = exc
+            if attempt >= attempts:
+                raise
+            print(
+                f"[orchestrator] {label}: network I/O error ({exc}). "
+                f"Retrying in {cur_sleep:.1f}s ({attempt}/{attempts})…"
+            )
+            time.sleep(cur_sleep)
+            cur_sleep = min(max_sleep_s, cur_sleep * 1.7)
+
+    raise last_exc  # pragma: no cover
 
 
 def _maybe_cache_video_locally(video_path: Path) -> Path:
@@ -384,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Stage1_raw  Raw YOLO render skipped due to error: {e}")
 
         t0 = time.perf_counter()
-        s2_csv = stage2_run(local_vid)
+        s2_csv = _run_with_network_io_retries("Stage2", lambda: stage2_run(local_vid))
         stage_times["stage2"] = time.perf_counter() - t0
         print(f"Stage2  Time: {stage_times['stage2']:.2f}s (csv: {s2_csv.name})")
 
@@ -396,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Stage2_1  Time: {stage_times['stage2_1']:.2f}s (csv: {s2_1_csv.name})")
 
         t0 = time.perf_counter()
-        s3_csv = stage3_run(local_vid)
+        s3_csv = _run_with_network_io_retries("Stage3", lambda: stage3_run(local_vid))
         stage_times["stage3"] = time.perf_counter() - t0
         print(f"Stage3  Time: {stage_times['stage3']:.2f}s (csv: {s3_csv.name})")
 
@@ -411,7 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[export] Warning: failed to export detections CSV for {vid.stem}: {e}")
 
         t0 = time.perf_counter()
-        out_vid = stage4_run(local_vid)
+        out_vid = _run_with_network_io_retries("Stage4", lambda: stage4_run(local_vid))
         stage_times["stage4"] = time.perf_counter() - t0
         print(f"Stage4  Time: {stage_times['stage4']:.2f}s (video: {out_vid.name})")
 

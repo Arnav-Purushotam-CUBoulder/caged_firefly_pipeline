@@ -20,7 +20,7 @@ from typing import List
 # Root folder for this pipeline (EDIT THIS)
 # - All stage outputs are saved here.
 # - Must contain a subfolder named "original videos" with input videos.
-ROOT: str | Path = "~/Desktop/arnav's files/caged_firefly_pipeline/experimental inference output data"
+ROOT: str | Path = "/run/user/1001/gvfs/smb-share:server=cu-genvpn-tcom-10.180.164.206.int.colorado.edu,share=dl%20project%20ssd/caged pyrallis experimental inference output data"
 # Normalize ROOT to a Path object even if provided as a string
 if not isinstance(ROOT, Path):
     ROOT = Path(str(ROOT)).expanduser()
@@ -44,8 +44,16 @@ RUN_PRE_RUN_CLEANUP: bool = True
 
 # OpenCV / FFmpeg
 # Increase read attempts to avoid transient decode/read failures on some videos.
-OPENCV_FFMPEG_READ_ATTEMPTS: int = 500_000
+OPENCV_FFMPEG_READ_ATTEMPTS: int = 500000
 os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = str(OPENCV_FFMPEG_READ_ATTEMPTS)
+
+# When videos are on a GVFS SMB mount (e.g. `/run/user/.../gvfs/smb-share:...`),
+# OpenCV/FFmpeg can hit stream timeouts or "partial file" errors mid-read.
+# To make the pipeline robust, optionally cache each input video to a local
+# temp directory and run all stages against that local copy.
+CACHE_NETWORK_VIDEOS_LOCALLY: bool = True
+LOCAL_VIDEO_CACHE_DIR: Path = Path("~/Desktop/arnav's files/caged_firefly_pipeline/experimental inference output data/temp cache")
+DELETE_CACHED_VIDEOS_AFTER_PROCESSING: bool = True
 
 # Frame cap (None = full video)
 MAX_FRAMES: int | None = 500
@@ -187,6 +195,9 @@ __all__ = [
     "VIDEO_EXTS",
     "RUN_PRE_RUN_CLEANUP",
     "OPENCV_FFMPEG_READ_ATTEMPTS",
+    "CACHE_NETWORK_VIDEOS_LOCALLY",
+    "LOCAL_VIDEO_CACHE_DIR",
+    "DELETE_CACHED_VIDEOS_AFTER_PROCESSING",
     "MAX_FRAMES",
     "STAGE2_BRIGHT_MAX_THRESHOLD",
     "STAGE2_AREA_INTENSITY_THR",

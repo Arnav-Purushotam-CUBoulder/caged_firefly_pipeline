@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -23,6 +25,165 @@ from stage6_test_overlay_gt_vs_model import stage6_test_overlay_gt_vs_model
 from stage7_test_fn_analysis import stage7_test_fn_nearest_tp_analysis
 from stage8_test_fp_analysis import stage8_test_fp_nearest_tp_analysis
 from stage9_test_detection_summary import stage9_test_generate_detection_summary
+
+
+def _is_gvfs_smb_path(path: Path) -> bool:
+    """Heuristic to detect GNOME GVFS SMB mounts (FUSE), which can be flaky for OpenCV/FFmpeg."""
+    s = str(path)
+    return "/gvfs/" in s and "smb-share:" in s
+
+
+def _format_bytes(num_bytes: float) -> str:
+    num = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(num) < 1024.0:
+            if unit == "B":
+                return f"{int(num)}{unit}"
+            return f"{num:0.1f}{unit}"
+        num /= 1024.0
+    return f"{num:0.1f}PB"
+
+
+def _format_eta(seconds: float) -> str:
+    seconds = max(0, int(seconds + 0.5))
+    m, s = divmod(seconds, 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h:d}:{m:02d}:{s:02d}"
+    return f"{m:d}:{s:02d}"
+
+
+def _copy_file_with_progress(src: Path, dst: Path, *, label: str) -> None:
+    """Copy file with a simple byte-based progress bar."""
+    try:
+        total = int(src.stat().st_size)
+    except Exception:
+        total = 0
+
+    chunk_bytes = 8 * 1024 * 1024
+    bar_w = 36
+    copied = 0
+    t0 = time.perf_counter()
+    last_update = 0.0
+
+    with src.open("rb") as fsrc, dst.open("wb") as fdst:
+        while True:
+            buf = fsrc.read(chunk_bytes)
+            if not buf:
+                break
+            fdst.write(buf)
+            copied += len(buf)
+
+            now = time.perf_counter()
+            if now - last_update < 0.2:
+                continue
+            if total > 0 and copied >= total:
+                continue
+
+            elapsed = max(now - t0, 1e-6)
+            speed = copied / elapsed
+            if total > 0:
+                frac = min(copied / total, 1.0)
+                fill = int(frac * bar_w)
+                bar = "█" * fill + "·" * (bar_w - fill)
+                remaining = max(0, total - copied)
+                eta = remaining / speed if speed > 0 else 0.0
+                sys.stdout.write(
+                    f"\r[{bar}] {frac*100:6.2f}% "
+                    f"{_format_bytes(copied)}/{_format_bytes(total)} "
+                    f"{_format_bytes(speed)}/s ETA {_format_eta(eta)}  {label}"
+                )
+            else:
+                sys.stdout.write(
+                    f"\r{_format_bytes(copied)} copied  {_format_bytes(speed)}/s  {label}"
+                )
+            sys.stdout.flush()
+            last_update = now
+
+    try:
+        shutil.copystat(src, dst)
+    except Exception:
+        pass
+
+    # Final line
+    elapsed = max(time.perf_counter() - t0, 1e-6)
+    speed = copied / elapsed
+    if total > 0:
+        bar = "█" * bar_w
+        sys.stdout.write(
+            f"\r[{bar}] {100.00:6.2f}% "
+            f"{_format_bytes(copied)}/{_format_bytes(total)} "
+            f"{_format_bytes(speed)}/s ETA {_format_eta(0)}  {label}\n"
+        )
+    else:
+        sys.stdout.write(
+            f"\r{_format_bytes(copied)} copied  {_format_bytes(speed)}/s  {label}\n"
+        )
+    sys.stdout.flush()
+
+
+def _maybe_cache_video_locally(video_path: Path) -> Path:
+    """Return a local cached copy of a GVFS SMB video (or the original path)."""
+    if not bool(getattr(params, "CACHE_NETWORK_VIDEOS_LOCALLY", False)):
+        return video_path
+    if not _is_gvfs_smb_path(video_path):
+        return video_path
+
+    cache_root = getattr(params, "LOCAL_VIDEO_CACHE_DIR", None)
+    try:
+        cache_root = Path(cache_root).expanduser() if cache_root is not None else None
+    except Exception:
+        cache_root = None
+    if cache_root is None:
+        cache_root = Path("/tmp/caged_firefly_pipeline_video_cache")
+
+    key = hashlib.sha1(str(video_path).encode("utf-8")).hexdigest()[:10]
+    cache_dir = cache_root / key
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached_path = cache_dir / video_path.name
+
+    try:
+        src_size = int(video_path.stat().st_size)
+        if cached_path.exists() and int(cached_path.stat().st_size) == src_size and src_size > 0:
+            return cached_path
+    except Exception:
+        if cached_path.exists():
+            return cached_path
+
+    tmp_path = cached_path.with_name(cached_path.name + ".partial")
+    try:
+        if tmp_path.exists():
+            tmp_path.unlink()
+    except Exception:
+        pass
+
+    print(f"[orchestrator] Caching network video locally → {cached_path}")
+    try:
+        _copy_file_with_progress(video_path, tmp_path, label=f"Caching {video_path.name}")
+    except Exception:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+        raise
+    tmp_path.replace(cached_path)
+    return cached_path
+
+
+def _maybe_delete_cached_video(original_path: Path, cached_path: Path) -> None:
+    if cached_path == original_path:
+        return
+    if not bool(getattr(params, "DELETE_CACHED_VIDEOS_AFTER_PROCESSING", False)):
+        return
+    try:
+        cached_path.unlink()
+    except Exception:
+        return
+    try:
+        cached_path.parent.rmdir()
+    except Exception:
+        pass
 
 
 def _print_stage_times(stage_times: dict[str, float]) -> None:
@@ -205,34 +366,37 @@ def main(argv: list[str] | None = None) -> int:
 
     for vid in videos:
         print(f"\n=== Processing: {vid.name} ===")
+        local_vid = _maybe_cache_video_locally(vid)
+        if local_vid != vid:
+            print(f"[orchestrator] Using local cached copy for reads: {local_vid}")
         stage_times: dict[str, float] = {}
 
         t0 = time.perf_counter()
-        s1_csv = stage1_run(vid)
+        s1_csv = stage1_run(local_vid)
         stage_times["stage1"] = time.perf_counter() - t0
         print(f"Stage1  Time: {stage_times['stage1']:.2f}s (csv: {s1_csv.name})")
 
         # Render raw YOLO detections from Stage1 for debugging/inspection
         try:
-            raw_vid = stage1_render_raw_run(vid)
+            raw_vid = stage1_render_raw_run(local_vid)
             print(f"Stage1_raw  Raw YOLO render: {raw_vid.name}")
         except Exception as e:
             print(f"Stage1_raw  Raw YOLO render skipped due to error: {e}")
 
         t0 = time.perf_counter()
-        s2_csv = stage2_run(vid)
+        s2_csv = stage2_run(local_vid)
         stage_times["stage2"] = time.perf_counter() - t0
         print(f"Stage2  Time: {stage_times['stage2']:.2f}s (csv: {s2_csv.name})")
 
         # Optional: Stage 2.1 trajectory + intensity hill filter (noise reduction)
         if bool(getattr(params, "STAGE2_1_ENABLE", False)):
             t0 = time.perf_counter()
-            s2_1_csv = stage2_1_run(vid)
+            s2_1_csv = stage2_1_run(local_vid)
             stage_times["stage2_1"] = time.perf_counter() - t0
             print(f"Stage2_1  Time: {stage_times['stage2_1']:.2f}s (csv: {s2_1_csv.name})")
 
         t0 = time.perf_counter()
-        s3_csv = stage3_run(vid)
+        s3_csv = stage3_run(local_vid)
         stage_times["stage3"] = time.perf_counter() - t0
         print(f"Stage3  Time: {stage_times['stage3']:.2f}s (csv: {s3_csv.name})")
 
@@ -247,11 +411,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[export] Warning: failed to export detections CSV for {vid.stem}: {e}")
 
         t0 = time.perf_counter()
-        out_vid = stage4_run(vid)
+        out_vid = stage4_run(local_vid)
         stage_times["stage4"] = time.perf_counter() - t0
         print(f"Stage4  Time: {stage_times['stage4']:.2f}s (video: {out_vid.name})")
 
-        _summarize_detections(s3_csv, vid)
+        _summarize_detections(s3_csv, local_vid)
         _print_stage_times(stage_times)
 
         # --- Post-pipeline test suite (per video) ---
@@ -268,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             # Stage 5 — validation vs GT
             if getattr(params, "RUN_STAGE5_TEST_VALIDATE", True):
                 stage5_test_validate_against_gt(
-                    orig_video_path=vid,
+                    orig_video_path=local_vid,
                     pred_csv_path=pred_points_csv,
                     gt_csv_path=gt_csv_path,
                     out_dir=test_root,
@@ -308,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
                     / f"{vid.stem}_overlay_GT-green_MODEL-red_overlap-yellow.mp4"
                 ).resolve()
                 stage6_test_overlay_gt_vs_model(
-                    orig_video_path=vid,
+                    orig_video_path=local_vid,
                     pred_csv_path=pred_points_csv,
                     post9_dir=test_root.resolve(),
                     out_video_path=out10_path,
@@ -341,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             if getattr(params, "RUN_STAGE7_TEST_FN_ANALYSIS", True):
                 stage7_test_fn_nearest_tp_analysis(
                     stage9_video_dir=test_root.resolve(),
-                    orig_video_path=vid,
+                    orig_video_path=local_vid,
                     box_w=int(
                         getattr(
                             params,
@@ -370,7 +534,7 @@ def main(argv: list[str] | None = None) -> int:
             if getattr(params, "RUN_STAGE8_TEST_FP_ANALYSIS", True):
                 stage8_test_fp_nearest_tp_analysis(
                     stage9_video_dir=test_root.resolve(),
-                    orig_video_path=vid,
+                    orig_video_path=local_vid,
                     box_w=int(
                         getattr(
                             params,
@@ -406,6 +570,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
         except Exception as e:
             print(f"[post] Warning: post-pipeline tests for {vid.stem} encountered an issue: {e}")
+        finally:
+            _maybe_delete_cached_video(vid, local_vid)
 
     print("\nAll done.")
     return 0
